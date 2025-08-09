@@ -1,0 +1,32 @@
+requirements.txt
+Core Framework
+gradio
+pandas
+numpy
+
+LangChain and related libraries
+langchain
+langchain-openai
+langchain-google-genai
+langchain-anthropic
+langchain-community
+
+RAG specific
+chromadb
+sentence-transformers
+ragas
+datasets
+
+Database
+sqlalchemy
+
+Utilities
+matplotlib
+japanize-matplotlib
+chardet
+tiktoken
+nest-asyncio
+
+google-generativeaiのバージョンを固定して依存関係の衝突を解決
+google-generativeai==0.8.5
+google-ai-generativelanguage==0.6.15
