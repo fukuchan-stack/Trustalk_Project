@@ -28,10 +28,10 @@ app = FastAPI()
 # CORSミドルウェア
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://turbo-invention-jjw4p9w75jvpcq6v9-3000.app.github.dev", # あなたのフロントエンドのURL
-    ],
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★ 修正点：正規表現を使い、あらゆるCodespacesのURLを許可する
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    allow_origin_regex=r"https?://.*\.app\.github\.dev", # httpとhttpsの両方、あらゆるgithub.devのサブドメインを許可
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -103,13 +103,11 @@ async def analyze_audio(file: UploadFile = File(...)):
         current_speaker = None
         
         for segment in segments:
-            # 'words'キーが存在しないセグメントをスキップ
             if 'words' not in segment:
                 continue
             for word in segment['words']:
                 word_start_time = word['start']
                 
-                # この単語を話している話者を見つける
                 speaking_turn = None
                 for turn, _, speaker_label in diarization.itertracks(yield_label=True):
                     if turn.start <= word_start_time < turn.end:
@@ -119,9 +117,7 @@ async def analyze_audio(file: UploadFile = File(...)):
                 if speaking_turn is None:
                     speaking_turn = "不明な話者"
 
-                # 話者が切り替わったタイミングで話者ラベルを挿入
                 if speaking_turn != current_speaker:
-                    # 改行を追加して見やすくする
                     if speaker_aware_transcript_parts:
                         speaker_aware_transcript_parts.append("\n\n")
                     speaker_aware_transcript_parts.append(f"**{speaking_turn}:**\n")
@@ -132,13 +128,12 @@ async def analyze_audio(file: UploadFile = File(...)):
         speaker_aware_transcript = "".join(speaker_aware_transcript_parts).strip()
         print("統合完了。")
 
-        # 4. LLM処理 (インプットを話者分離済みテキストに変更)
+        # 4. LLM処理
         model_name = "gpt-4o-mini"
         llm = get_llm_instance(model_name)
         cost = 0.0
         model_cost_info = MODEL_COSTS.get(model_name, {"input": 0, "output": 0})
         
-        # 4a. 要約生成
         summary_prompt = ChatPromptTemplate.from_template("以下の会議の議事録を、重要なポイントを箇条書きで簡潔に要約してください。\n\n議事録:\n---\n{text}\n---")
         summary_chain = summary_prompt | llm | StrOutputParser()
         summary = ""
@@ -147,7 +142,6 @@ async def analyze_audio(file: UploadFile = File(...)):
             cost += (cb_summary.prompt_tokens * model_cost_info["input"] / 1000) + \
                     (cb_summary.completion_tokens * model_cost_info["output"] / 1000)
         
-        # 4b. ToDo抽出
         todo_prompt = ChatPromptTemplate.from_template("""以下の会議の議事録から、アクションアイテム（誰が、いつまでに、何をするかというタスク）を抽出してください。\n以下のJSON形式のリストで回答してください。アクションアイテムが見つからない場合は空のリスト [] を返してください。\n\n[
           {{ "assignee": "担当者名", "task": "具体的なタスク内容", "due_date": "期日" }},
           {{ "assignee": "担当者名", "task": "具体的なタスク内容", "due_date": "期日" }}
