@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+evaluation_log.db
+temp_audio/
+
+# Node.js
+frontend/node_modules/
+frontend/.next/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.env.local
+
+# IDE / OS files
+.vscode/
+.DS_Store

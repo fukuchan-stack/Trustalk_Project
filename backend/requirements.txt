@@ -1,32 +1,26 @@
-requirements.txt
-Core Framework
-gradio
-pandas
-numpy
+# Web Framework
+fastapi
+uvicorn[standard]
 
-LangChain and related libraries
+# Database
+sqlalchemy
+pandas
+
+# AI Core
+openai-whisper
+pyannote.audio
+
+# LangChain Ecosystem
 langchain
 langchain-openai
 langchain-google-genai
 langchain-anthropic
 langchain-community
+tiktoken
 
-RAG specific
-chromadb
-sentence-transformers
+# Evaluation
 ragas
 datasets
 
-Database
-sqlalchemy
-
-Utilities
-matplotlib
-japanize-matplotlib
-chardet
-tiktoken
-nest-asyncio
-
-google-generativeaiのバージョンを固定して依存関係の衝突を解決
-google-generativeai==0.8.5
-google-ai-generativelanguage==0.6.15
+# Configuration
+python-dotenv
