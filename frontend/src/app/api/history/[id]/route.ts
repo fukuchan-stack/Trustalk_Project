@@ -4,17 +4,18 @@ const BACKEND_URL = 'http://localhost:8000';
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: { id: string } }
 ) {
   const id = params.id;
   try {
     const response = await fetch(`${BACKEND_URL}/api/history/${id}`);
+    if (!response.ok) {
+      throw new Error(`Backend error: ${response.statusText}`);
+    }
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    return NextResponse.json(
-      { error: 'Failed to fetch history detail' },
-      { status: 500 },
-    );
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: 'Failed to fetch history detail', details: errorMessage }, { status: 500 });
   }
 }
