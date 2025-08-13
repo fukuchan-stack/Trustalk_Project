@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
@@ -41,23 +40,3 @@ next-env.d.ts
 robots.txt
 sitemap.xml
 sitemap-*.xml
-=======
-# Python
-.venv/
-__pycache__/
-*.pyc
-evaluation_log.db
-temp_audio/
-
-# Node.js
-frontend/node_modules/
-frontend/.next/
-frontend/npm-debug.log*
-frontend/yarn-debug.log*
-frontend/yarn-error.log*
-frontend/.env.local
-
-# IDE / OS files
-.vscode/
-.DS_Store
->>>>>>> 1bca3ff8839df47f8a8de3b09d2976f2b56df732

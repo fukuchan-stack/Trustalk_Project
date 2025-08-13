@@ -1,0 +1,27 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Database
+sqlalchemy
+pandas
+
+# AI Core
+openai-whisper
+pyannote.audio
+
+# LangChain Ecosystem
+langchain
+langchain-openai
+langchain-google-genai
+langchain-anthropic
+langchain-community
+tiktoken
+
+# Evaluation
+ragas
+datasets
+
+# Configuration
+python-dotenv

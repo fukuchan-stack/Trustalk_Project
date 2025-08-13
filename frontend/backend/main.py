@@ -25,10 +25,13 @@ if HUGGING_FACE_HUB_TOKEN is None:
 database.init_db()
 app = FastAPI()
 
-# CORSミドルウェア (正規表現を使い、あらゆるCodespacesのURLを許可)
+# CORSミドルウェア
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://.*\.app\.github\.dev",
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★ 修正点：正規表現を使い、あらゆるCodespacesのURLを許可する
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    allow_origin_regex=r"https?://.*\.app\.github\.dev", # httpとhttpsの両方、あらゆるgithub.devのサブドメインを許可
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -131,7 +134,6 @@ async def analyze_audio(file: UploadFile = File(...)):
         cost = 0.0
         model_cost_info = MODEL_COSTS.get(model_name, {"input": 0, "output": 0})
         
-        # 4a. 要約生成
         summary_prompt = ChatPromptTemplate.from_template("以下の会議の議事録を、重要なポイントを箇条書きで簡潔に要約してください。\n\n議事録:\n---\n{text}\n---")
         summary_chain = summary_prompt | llm | StrOutputParser()
         summary = ""
@@ -140,7 +142,6 @@ async def analyze_audio(file: UploadFile = File(...)):
             cost += (cb_summary.prompt_tokens * model_cost_info["input"] / 1000) + \
                     (cb_summary.completion_tokens * model_cost_info["output"] / 1000)
         
-        # 4b. ToDo抽出
         todo_prompt = ChatPromptTemplate.from_template("""以下の会議の議事録から、アクションアイテム（誰が、いつまでに、何をするかというタスク）を抽出してください。\n以下のJSON形式のリストで回答してください。アクションアイテムが見つからない場合は空のリスト [] を返してください。\n\n[
           {{ "assignee": "担当者名", "task": "具体的なタスク内容", "due_date": "期日" }},
           {{ "assignee": "担当者名", "task": "具体的なタスク内容", "due_date": "期日" }}

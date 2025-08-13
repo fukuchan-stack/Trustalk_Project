@@ -1,0 +1,20 @@
+{
+	"image": "mcr.microsoft.com/devcontainers/base:debian",
+	"features": {
+		"ghcr.io/devcontainers/features/node:1": {}
+	},
+	"postCreateCommand": "sudo apt-get update && sudo apt-get install -y ffmpeg build-essential cmake python3-venv",
+	"portsAttributes": {
+		"8000": {
+			"label": "Backend (FastAPI)",
+			"visibility": "public"
+		},
+		"3000": {
+			"label": "Frontend (Next.js)",
+			"onAutoForward": "openPreview"
+		}
+	},
+	"remoteEnv": {
+		"NEXT_PUBLIC_API_URL": "https://${localEnv:CODESPACE_NAME}-8000.app.github.dev"
+	}
+}
