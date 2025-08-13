@@ -1,9 +1,9 @@
 # Python
-.venv/
-__pycache__/
+backend/.venv/
+backend/__pycache__/
 *.pyc
-evaluation_log.db
-temp_audio/
+backend/evaluation_log.db
+backend/temp_audio/
 
 # Node.js
 frontend/node_modules/
