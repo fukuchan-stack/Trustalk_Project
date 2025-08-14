@@ -16,3 +16,6 @@ frontend/.env.local
 # IDE / OS files
 .vscode/
 .DS_Store
+
+# VSCodeの設定は基本的に無視するが、チームで共有すべき設定は例外とする
+!.vscode/settings.json
