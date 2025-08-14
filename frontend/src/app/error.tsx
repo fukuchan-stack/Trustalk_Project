@@ -1,9 +1,9 @@
+// frontend/src/app/error.tsx
+
 'use client'; // Error components must be Client Components
 
 import * as React from 'react';
 import { RiAlarmWarningFill } from 'react-icons/ri';
-
-import TextButton from '@/components/buttons/TextButton';
 
 export default function Error({
   error,
@@ -20,7 +20,7 @@ export default function Error({
   return (
     <main>
       <section className='bg-white'>
-        <div className='layout flex min-h-screen flex-col items-center justify-center text-center text-black'>
+        <div className='flex min-h-screen flex-col items-center justify-center text-center text-black'>
           <RiAlarmWarningFill
             size={60}
             className='drop-shadow-glow animate-flicker text-red-500'
@@ -28,9 +28,13 @@ export default function Error({
           <h1 className='mt-8 text-4xl md:text-6xl'>
             Oops, something went wrong!
           </h1>
-          <TextButton variant='basic' onClick={reset} className='mt-4'>
+          {/* 削除したTextButtonの代わりに、標準のbutton要素を使用 */}
+          <button
+            onClick={reset}
+            className='mt-4 rounded-md bg-gray-200 px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-300'
+          >
             Try again
-          </TextButton>
+          </button>
         </div>
       </section>
     </main>

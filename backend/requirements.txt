@@ -1,27 +1,12 @@
-# Web Framework
+# FastAPI server
 fastapi
 uvicorn[standard]
-python-multipart
 
-# Database
-sqlalchemy
-pandas
-
-# AI Core
-openai-whisper
+# AI & Audio Processing
+openai
+# torch は別でインストール
 pyannote.audio
+whisper-timestamped
 
-# LangChain Ecosystem
-langchain
-langchain-openai
-langchain-google-genai
-langchain-anthropic
-langchain-community
-tiktoken
-
-# Evaluation
-ragas
-datasets
-
-# Configuration
-python-dotenv
+# 追加
+python-multipart

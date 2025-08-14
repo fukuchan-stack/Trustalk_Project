@@ -1,10 +1,20 @@
+// 正しいファイルパス: /.devcontainer/devcontainer.json
+
 {
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "name": "Trustalk Project Codespace",
+  // Microsoft公式のPython&Node.js環境イメージを直接指定
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bullseye",
+
   "features": {
+    // Node.js (フロントエンド用) をインストールする機能
     "ghcr.io/devcontainers/features/node:1": {}
   },
+
+  // 起動後に実行するコマンド
+  // ★★★★★ この行の末尾に libsndfile1-dev を追加しました ★★★★★
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y ffmpeg build-essential cmake libsndfile1-dev",
+
+  // ポートの設定
   "portsAttributes": {
     "8000": {
       "label": "Backend (FastAPI)",
@@ -13,6 +23,24 @@
     "3000": {
       "label": "Frontend (Next.js)",
       "onAutoForward": "openPreview"
+    }
+  },
+  
+  // フロントエンド用の環境変数
+  "remoteEnv": {
+    "NEXT_PUBLIC_API_URL": "https://${localEnv:CODESPACE_NAME}-8000.app.github.dev"
+  },
+  
+  // VSCodeの推奨拡張機能
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint"
+      ]
     }
   }
 }
