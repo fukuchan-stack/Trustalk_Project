@@ -10,3 +10,9 @@ whisper-timestamped
 
 # 追加
 python-multipart
+
+# For multi-model support via LangChain
+langchain
+langchain-openai
+langchain-google-genai
+langchain-anthropic

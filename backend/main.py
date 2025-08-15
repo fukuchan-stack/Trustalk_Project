@@ -1,4 +1,4 @@
-# backend/main.py (インポートと関数呼び出しを修正した最終版)
+# backend/main.py (使用モデルを履歴に追加する最終版)
 
 import os
 import uuid
@@ -6,23 +6,22 @@ import json
 import torch
 import traceback
 import subprocess
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI
 from pyannote.audio import Pipeline
 import whisper_timestamped as whisper
-# ★ 変更点1: インポートする関数名を新しいものに変更
 from ai_pipelines import run_self_improvement_pipeline
 
-# --- 環境変数とクライアントの初期化 (変更なし) ---
+# --- 環境変数とクライアントの初期化 ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 HF_TOKEN = os.getenv("HF_TOKEN")
-if not OPENAI_API_KEY or not HF_TOKEN:
-    raise ValueError("APIキーまたはトークンが設定されていません。GitHub Secretsを確認してください。")
-client = OpenAI(api_key=OPENAI_API_KEY)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+if not HF_TOKEN:
+    raise ValueError("環境変数 HF_TOKEN が設定されていません。")
 
-# --- AIモデルの初期化 (変更なし) ---
+# --- AIモデルの初期化 ---
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 try:
@@ -42,8 +41,8 @@ except Exception as e:
     print(f"Pyannote: Pipelineの読み込みに失敗しました。Error: {e}")
     diarization_pipeline = None
 
-# --- FastAPIアプリケーションのセットアップ (変更なし) ---
-app = FastAPI(title="Trustalk API", version="2.0.0")
+# --- FastAPIアプリケーションのセットアップ ---
+app = FastAPI(title="Trustalk API", version="2.0.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -90,10 +89,9 @@ def merge_results(diarization, transcription):
 def read_root(): return {"status": "ok", "message": "Welcome to Trustalk API!"}
 
 @app.post("/analyze", summary="音声ファイルの分析")
-async def analyze_audio(file: UploadFile = File(...)):
+async def analyze_audio(file: UploadFile = File(...), model_name: str = Form("gpt-4o-mini")):
     if whisper_model is None or diarization_pipeline is None:
         raise HTTPException(status_code=503, detail="AIモデルが利用できません。サーバーのログを確認してください。")
-    
     original_filename = file.filename
     temp_file_path = f"/tmp/{uuid.uuid4()}_{original_filename}"
     wav_file_path = f"{os.path.splitext(temp_file_path)[0]}.wav"
@@ -101,28 +99,18 @@ async def analyze_audio(file: UploadFile = File(...)):
         with open(temp_file_path, "wb") as buffer:
             contents = await file.read()
             buffer.write(contents)
-        
-        print(f"Converting {temp_file_path} to WAV format...")
         command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]
         subprocess.run(command, check=True, capture_output=True, text=True)
-        print("Conversion to WAV successful.")
-        print("Whisper: Starting timestamped transcription...")
         audio = whisper.load_audio(wav_file_path)
         transcription_result = whisper.transcribe(whisper_model, audio, language="ja", detect_disfluencies=True)
-        print("Whisper: Transcription finished.")
-        print("Pyannote: Starting diarization...")
         diarization_result = diarization_pipeline(wav_file_path)
-        print("Pyannote: Diarization finished.")
-        print("Merging results...")
         speakers_text, transcript_text = merge_results(diarization_result, transcription_result)
-        print("Merging finished.")
-
-        # ★ 変更点2: AI処理を新しい関数呼び出しに置き換え
-        summary_text, todos_list = run_self_improvement_pipeline(client, transcript_text)
+        summary_text, todos_list = run_self_improvement_pipeline(model_name, transcript_text)
 
         result = { 
             "id": str(uuid.uuid4()),
             "originalFilename": original_filename,
+            "model_name": model_name, # ★ 変更点: 使用したモデル名を結果に追加
             "transcript": transcript_text, 
             "summary": summary_text, 
             "todos": todos_list, 
@@ -134,11 +122,7 @@ async def analyze_audio(file: UploadFile = File(...)):
         history_file_path = os.path.join(HISTORY_DIR, f"{result['id']}.json")
         with open(history_file_path, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=4)
-
         return JSONResponse(content=result)
-    except subprocess.CalledProcessError as e:
-        print(f"ffmpeg error: {e.stderr}")
-        raise HTTPException(status_code=400, detail=f"サポートされていない音声ファイル形式です。ffmpegエラー: {e.stderr}")
     except Exception as e:
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"分析中に予期せぬエラーが発生しました: {str(e)}")
@@ -146,7 +130,6 @@ async def analyze_audio(file: UploadFile = File(...)):
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
         if os.path.exists(wav_file_path): os.remove(wav_file_path)
 
-# ( ... /history と /history/{id} の部分は変更なし ... )
 @app.get("/history", summary="分析履歴の一覧を取得")
 async def get_history_list():
     try:
@@ -161,12 +144,12 @@ async def get_history_list():
                     "createdAt": os.path.getmtime(file_path),
                     "summary": data.get("summary", "要約なし").split('\n')[0],
                     "originalFilename": data.get("originalFilename", "ファイル名不明"),
-                    "cost": data.get("cost", 0.0)
+                    "cost": data.get("cost", 0.0),
+                    "model_name": data.get("model_name", "不明") # ★ 変更点: 履歴一覧にもモデル名を追加
                 })
         sorted_history = sorted(history_summary, key=lambda x: x["createdAt"], reverse=True)
         return sorted_history
     except Exception as e:
-        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"履歴の読み込み中にエラーが発生しました: {str(e)}")
 
 @app.get("/history/{file_id}", summary="特定の分析履歴を取得")
