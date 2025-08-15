@@ -188,7 +188,8 @@ async def get_history_list():
                     "id": data.get("id"),
                     "createdAt": os.path.getmtime(file_path), # ファイルの更新日時をタイムスタンプとして使用
                     "summary": data.get("summary", "要約なし").split('\n')[0], # 要約の1行目だけを取得
-                    "originalFilename": data.get("originalFilename", "ファイル名不明")
+                    "originalFilename": data.get("originalFilename", "ファイル名不明"),
+                    "cost": data.get("cost", 0.0) # コスト情報を追加
                 })
         
         # 作成日時が新しい順にソート

@@ -1,30 +1,28 @@
-// frontend/src/app/page.tsx (UI/UX改善版)
+// frontend/src/app/page.tsx (今回の修正をすべて反映した最終版)
 
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 
-// 履歴一覧のアイテムの型を定義
+// 履歴一覧のアイテムの型を定義（costを追加）
 interface HistoryItem {
   id: string;
   createdAt: number;
   summary: string;
   originalFilename: string;
+  cost: number;
 }
 
 export default function HomePage() {
   const [file, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const router = useRouter();
   
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
-  // 履歴を取得する関数
   const fetchHistory = async () => {
     if (!apiUrl) return;
     try {
@@ -39,7 +37,6 @@ export default function HomePage() {
     }
   };
 
-  // ページが読み込まれた時に履歴を取得
   useEffect(() => {
     fetchHistory();
   }, []);
@@ -57,7 +54,6 @@ export default function HomePage() {
 
     setIsLoading(true);
     setError(null);
-    setSuccessMessage(null);
     const formData = new FormData();
     formData.append('file', file);
 
@@ -67,11 +63,10 @@ export default function HomePage() {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'サーバーでエラーが発生しました。');
       }
+      const data = await response.json();
       
-      setSuccessMessage('分析が完了しました。履歴が更新されます。');
-      setFile(null);
-      (document.getElementById('file-upload') as HTMLInputElement).value = '';
-      await fetchHistory();
+      // ★ 修正点: 分析完了後、詳細ページに移動する
+      router.push(`/history/${data.id}`);
 
     } catch (err: any) {
       setError(err.message || '分析中に不明なエラーが発生しました。');
@@ -82,7 +77,7 @@ export default function HomePage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center p-4 sm:p-8 bg-gray-50">
-      <div className="w-full max-w-4xl">
+      <div className="w-full max-w-5xl"> {/* 横幅を少し広げます */}
         <div className="text-center mb-10">
             <h1 className="text-4xl font-bold text-gray-800 mb-2">Trustalk</h1>
             <p className="text-lg text-gray-600">AIによる音声ファイル分析プラットフォーム</p>
@@ -110,12 +105,6 @@ export default function HomePage() {
               <p>{error}</p>
             </div>
           )}
-          {successMessage && (
-            <div className="mt-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg">
-              <p className="font-bold">成功</p>
-              <p>{successMessage}</p>
-            </div>
-          )}
         </div>
         
         <div>
@@ -128,6 +117,8 @@ export default function HomePage() {
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">分析日時</th>
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ファイル名</th>
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">要約（冒頭）</th>
+                  {/* ★ 修正点: コスト列を追加 */}
+                  <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">コスト (USD)</th>
                 </tr>
               </thead>
               <tbody>
@@ -135,7 +126,8 @@ export default function HomePage() {
                   history.map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/history/${item.id}`)}>
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        <p className="text-blue-600 hover:text-blue-800 underline whitespace-no-wrap font-semibold">
+                        {/* ★ 修正点: 青色にするが、下線は削除 */}
+                        <p className="text-blue-600 hover:text-blue-800 whitespace-no-wrap font-semibold">
                           {index + 1}
                         </p>
                       </td>
@@ -150,11 +142,15 @@ export default function HomePage() {
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
                         <p className="text-gray-900 whitespace-no-wrap">{item.summary}</p>
                       </td>
+                      {/* ★ 修正点: コストのセルを追加 */}
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">
+                        <p className="text-gray-600 whitespace-no-wrap">${item.cost.toFixed(6)}</p>
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-center text-gray-500">
+                    <td colSpan={5} className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-center text-gray-500">
                       分析履歴はまだありません。
                     </td>
                   </tr>
