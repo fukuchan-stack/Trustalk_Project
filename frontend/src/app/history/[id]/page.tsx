@@ -43,8 +43,6 @@ export default function HistoryDetailPage() {
     }
   }, [id, apiUrl]);
 
-  // ★ 修正点: データの読み込み中、エラー時、データが存在しない場合に、
-  // このコンポーネントの処理をここで中断して、それぞれの表示を行う
   if (loading) {
     return (
         <div className="flex items-center justify-center min-h-screen">
@@ -76,10 +74,13 @@ export default function HistoryDetailPage() {
     );
   }
 
-  // この行以降は、`result`がnullでないことが保証されている
   const todosText = result.todos && result.todos.length > 0
     ? result.todos.map(todo => `- ${todo}`).join('\n')
     : 'なし';
+    
+  // 信頼性スコアを100点満点で整数に変換し、色を決定
+  const reliabilityScore = Math.round(result.reliability.score * 100);
+  const scoreColor = reliabilityScore > 80 ? 'text-green-600' : reliabilityScore > 60 ? 'text-yellow-600' : 'text-red-600';
 
   return (
     <main className="bg-gray-50 min-h-screen p-4 sm:p-8">
@@ -94,7 +95,6 @@ export default function HistoryDetailPage() {
         <p className="text-gray-500 mb-6 text-xs">ID: {result.id}</p>
         
         <div className="space-y-6">
-          {/* --- メタデータ --- */}
           <div className="bg-white shadow-md rounded-lg p-6 text-sm text-gray-600">
             <h3 className="text-lg font-semibold mb-3 text-gray-800">概要</h3>
             <ul>
@@ -103,6 +103,21 @@ export default function HistoryDetailPage() {
             </ul>
           </div>
           
+          {/* ★ 追加: 信頼性スコア表示カード */}
+          <div className="bg-white shadow-md rounded-lg p-6">
+            <h2 className="text-2xl font-semibold mb-3">信頼性スコア</h2>
+            <div className="flex items-center space-x-4">
+              <div className={`text-5xl font-bold ${scoreColor}`}>
+                {reliabilityScore}
+                <span className="text-2xl text-gray-500">/ 100</span>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-800">評価AIのコメント</h3>
+                <p className="text-gray-600 italic">"{result.reliability.justification}"</p>
+              </div>
+            </div>
+          </div>
+
           <div className="bg-white shadow-md rounded-lg p-6">
             <h2 className="text-2xl font-semibold mb-3">AIによる要約</h2>
             <div className="prose max-w-none whitespace-pre-wrap">{result.summary}</div>

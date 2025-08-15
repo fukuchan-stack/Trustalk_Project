@@ -1,12 +1,12 @@
 // frontend/src/app/page.tsx
 
-'use client';
+"use client"; // ★★★ この行をハイフンなしの正しい記述に修正 ★★★
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-// 履歴一覧のアイテムの型を定義 (model_nameを追加)
+// 履歴一覧のアイテムの型を定義
 interface HistoryItem {
   id: string;
   createdAt: number;
@@ -14,6 +14,7 @@ interface HistoryItem {
   originalFilename: string;
   cost: number;
   model_name: string;
+  reliability_score: number;
 }
 
 // 選択可能なAIモデルのリストを定義
@@ -83,13 +84,13 @@ export default function HomePage() {
       
       setSuccessMessage('分析が完了しました。結果ページに移動します...');
       setFile(null);
-       if (document.getElementById('file-upload')) {
+      if (document.getElementById('file-upload')) {
         (document.getElementById('file-upload') as HTMLInputElement).value = '';
       }
 
       setTimeout(() => {
         router.push(`/history/${data.id}`);
-      }, 1500); // 1.5秒後に移動
+      }, 1500);
 
     } catch (err: any) {
       setError(err.message || '分析中に不明なエラーが発生しました。');
@@ -99,14 +100,13 @@ export default function HomePage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center p-4 sm:p-8 bg-gray-50">
-      <div className="w-full max-w-5xl">
+      <div className="w-full max-w-6xl">
         <div className="text-center mb-10">
             <h1 className="text-4xl font-bold text-gray-800 mb-2">Trustalk</h1>
             <p className="text-lg text-gray-600">AIによる音声ファイル分析プラットフォーム</p>
         </div>
 
         <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 mb-12">
-          { /* ... フォーム部分は変更なし ... */ }
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">
@@ -149,10 +149,11 @@ export default function HomePage() {
             <table className="min-w-full leading-normal">
               <thead>
                 <tr>
-                  <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-16">No.</th>
+                  <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-12">No.</th>
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">分析日時</th>
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ファイル名</th>
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">使用モデル</th>
+                  <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">信頼性</th>
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">コスト (USD)</th>
                 </tr>
               </thead>
@@ -161,22 +162,22 @@ export default function HomePage() {
                   history.map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/history/${item.id}`)}>
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        <p className="text-blue-600 hover:text-blue-800 whitespace-no-wrap font-semibold">
-                          {index + 1}
-                        </p>
+                        <p className="text-blue-600 hover:text-blue-800 whitespace-no-wrap font-semibold">{index + 1}</p>
                       </td>
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        <p className="text-gray-900 whitespace-no-wrap">
-                          {new Date(item.createdAt * 1000).toLocaleString('ja-JP')}
-                        </p>
+                        <p className="text-gray-900 whitespace-no-wrap">{new Date(item.createdAt * 1000).toLocaleString('ja-JP')}</p>
                       </td>
                        <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
                         <p className="text-gray-900 whitespace-no-wrap">{item.originalFilename}</p>
                       </td>
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        <span className="font-mono bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-xs">
-                          {item.model_name}
+                        <span className="font-mono bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-xs">{item.model_name}</span>
+                      </td>
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">
+                        <span className={`font-semibold ${ item.reliability_score > 0.8 ? 'text-green-600' : item.reliability_score > 0.6 ? 'text-yellow-600' : 'text-red-600' }`}>
+                          {(item.reliability_score * 100).toFixed(0)}
                         </span>
+                        <span className="text-gray-500 text-xs"> / 100</span>
                       </td>
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">
                         <p className="text-gray-600 whitespace-no-wrap">${item.cost.toFixed(6)}</p>
@@ -185,8 +186,7 @@ export default function HomePage() {
                   ))
                 ) : (
                   <tr>
-                    {/* ★ 修正点: 列が増えたのでcolSpanを5に変更 */}
-                    <td colSpan={5} className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-center text-gray-500">
+                    <td colSpan={6} className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-center text-gray-500">
                       分析履歴はまだありません。
                     </td>
                   </tr>

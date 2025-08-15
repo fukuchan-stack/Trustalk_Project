@@ -1,14 +1,14 @@
-# backend/ai_pipelines.py (LangChainを使ったマルチモデル対応版)
+# backend/ai_pipelines.py (プロンプトを完全に記述した最終版)
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from models import get_llm
 
 def _generate_draft(model_name: str, transcript_text: str):
-    """ステップ1: 文字起こしから要約とToDoの「ドラフト」を生成する"""
-    print(f"LLM [Step 1/3]: Generating draft with {model_name}...")
-    
+    """ステップ1: ドラフト生成 (JSON出力)"""
+    print(f"LLM [Step 1/4]: Generating draft with {model_name}...")
     llm = get_llm(model_name)
+    llm_with_json = llm.bind(response_format={"type": "json_object"})
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "あなたは、会議の文字起こしを分析し、要点とアクションアイテムを抽出するアシスタントです。"),
@@ -21,7 +21,7 @@ def _generate_draft(model_name: str, transcript_text: str):
 1. この会議の要約を3〜5個の箇条書きで作成してください。
 2. この会議で発生したToDo（アクションアイテム）をリストアップしてください。
 
-あなたの回答は、必ず以下のJSON形式で返してください。
+あなたの回答は、必ず以下のjson形式で返してください。
 {{
   "summary": ["要約1", "要約2"],
   "todos": ["ToDo1", "ToDo2"]
@@ -29,13 +29,12 @@ def _generate_draft(model_name: str, transcript_text: str):
 """)
     ])
     
-    chain = prompt | llm | JsonOutputParser()
+    chain = prompt | llm_with_json | JsonOutputParser()
     return chain.invoke({"transcript": transcript_text})
 
 def _review_draft(model_name: str, transcript_text: str, draft: dict):
-    """ステップ2: 生成されたドラフトをAI自身がレビューし、改善点を指摘する"""
-    print(f"LLM [Step 2/3]: Reviewing draft with {model_name}...")
-
+    """ステップ2: レビュー (テキスト出力)"""
+    print(f"LLM [Step 2/4]: Reviewing draft with {model_name}...")
     llm = get_llm(model_name)
     
     draft_summary = "\n".join(f"- {item}" for item in draft.get("summary", []))
@@ -72,10 +71,10 @@ def _review_draft(model_name: str, transcript_text: str, draft: dict):
     })
 
 def _revise_draft(model_name: str, transcript_text: str, draft: dict, review_feedback: str):
-    """ステップ3: レビュー結果を元に、最終的な成果物を生成する"""
-    print(f"LLM [Step 3/3]: Revising draft with {model_name}...")
-
+    """ステップ3: 改善 (JSON出力)"""
+    print(f"LLM [Step 3/4]: Revising draft with {model_name}...")
     llm = get_llm(model_name)
+    llm_with_json = llm.bind(response_format={"type": "json_object"})
     
     draft_summary = "\n".join(f"- {item}" for item in draft.get("summary", []))
     draft_todos = "\n".join(f"- {item}" for item in draft.get("todos", []))
@@ -98,7 +97,7 @@ def _revise_draft(model_name: str, transcript_text: str, draft: dict, review_fee
 
 # 命令
 レビューでの指摘事項を反映し、**最高の品質**の要約とToDoリストを生成してください。
-あなたの回答は、必ず以下のJSON形式で返してください。
+あなたの回答は、必ず以下のjson形式で返してください。
 {{
   "summary": ["改善された要約1", "改善された要約2"],
   "todos": ["改善されたToDo1", "改善されたToDo2"]
@@ -106,7 +105,7 @@ def _revise_draft(model_name: str, transcript_text: str, draft: dict, review_fee
 """)
     ])
     
-    chain = prompt | llm | JsonOutputParser()
+    chain = prompt | llm_with_json | JsonOutputParser()
     return chain.invoke({
         "transcript": transcript_text,
         "summary": draft_summary,
@@ -114,21 +113,65 @@ def _revise_draft(model_name: str, transcript_text: str, draft: dict, review_fee
         "feedback": review_feedback
     })
 
+def _evaluate_reliability(model_name: str, transcript_text: str, final_summary: str):
+    """ステップ4: 信頼性評価 (JSON出力)"""
+    print(f"LLM [Step 4/4]: Evaluating reliability with {model_name}...")
+    llm = get_llm(model_name)
+    llm_with_json = llm.bind(response_format={"type": "json_object"})
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "あなたは、AIが生成した要約を、元の文字起こしと比較して評価する厳格な評価者です。"),
+        ("user", """以下の「元の文字起こし」と「AIによる要約」を比較してください。
+
+# 元の文字起こし
+{transcript}
+
+# AIによる要約
+{summary}
+
+# 命令
+以下の3つの観点で、要약の品質を0.0から1.0の範囲で採点してください。
+1.  **忠実性 (Faithfulness):** 要約に、元の文字起こしにはない情報（ハルシネーション）が含まれていませんか？完全に忠実なら1.0、そうでないなら減点してください。
+2.  **網羅性 (Comprehensiveness):** 要約は、元の文字起こしの主要なトピックをすべてカバーしていますか？重要な情報が欠けている場合は減点してください。
+3.  **簡潔性 (Conciseness):** 要約は、冗長な表現がなく、簡潔にまとまっていますか？
+
+あなたの評価を、以下のjson形式で返してください。
+{{
+  "faithfulness_score": 0.9,
+  "comprehensiveness_score": 0.8,
+  "conciseness_score": 1.0,
+  "justification": "要約は概ね正確だが、Q4予算に関する言及が抜けているため網羅性を減点した。"
+}}
+""")
+    ])
+
+    chain = prompt | llm_with_json | JsonOutputParser()
+    evaluation = chain.invoke({"transcript": transcript_text, "summary": final_summary})
+    
+    scores = [
+        evaluation.get("faithfulness_score", 0),
+        evaluation.get("comprehensiveness_score", 0),
+        evaluation.get("conciseness_score", 0)
+    ]
+    average_score = sum(scores) / len(scores) if scores else 0
+    
+    return {
+        "score": average_score,
+        "justification": evaluation.get("justification", "評価に失敗しました。")
+    }
+
 def run_self_improvement_pipeline(model_name: str, transcript_text: str):
     """
-    「ドラフト生成 → レビュー → 改善」のパイプライン全体を実行するメイン関数。
+    「ドラフト生成 → レビュー → 改善 → 評価」のパイプライン全体を実行するメイン関数。
     """
     try:
         draft_result = _generate_draft(model_name, transcript_text)
         review_feedback = _review_draft(model_name, transcript_text, draft_result)
         final_result = _revise_draft(model_name, transcript_text, draft_result, review_feedback)
-
         summary = "\n".join(f"- {item}" for item in final_result.get("summary", []))
         todos = final_result.get("todos", [])
-        
-        return summary, todos
-
+        reliability_info = _evaluate_reliability(model_name, transcript_text, summary)
+        return summary, todos, reliability_info
     except Exception as e:
         print(f"LLMパイプラインでエラーが発生しました: {e}")
-        # エラーが発生した場合は、空の情報を返す
-        return "要約の生成に失敗しました。", ["ToDoの抽出に失敗しました。"]
+        return "要約の生成に失敗しました。", ["ToDoの抽出に失敗しました。"], {"score": 0.0, "justification": "パイプラインエラー"}

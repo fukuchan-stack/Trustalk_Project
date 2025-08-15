@@ -3,11 +3,15 @@
 export interface AnalysisResult {
   id: string;
   originalFilename: string;
-  model_name: string; // ★ この行を追加
+  model_name: string;
   transcript: string;
   summary: string;
   todos: string[];
   speakers: string;
   cost: number;
-  reliability: number;
+  // ★ 変更点: reliabilityをオブジェクト型に変更
+  reliability: {
+    score: number;
+    justification: string;
+  };
 }

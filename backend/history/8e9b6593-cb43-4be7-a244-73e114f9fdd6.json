@@ -1,0 +1,16 @@
+{
+    "id": "8e9b6593-cb43-4be7-a244-73e114f9fdd6",
+    "originalFilename": "sanple.m4a",
+    "model_name": "gpt-4o-mini",
+    "transcript": "これはトラストークのテストですいいでしょう",
+    "summary": "要約の生成に失敗しました。",
+    "todos": [
+        "ToDoの抽出に失敗しました。"
+    ],
+    "speakers": "**UNKNOWN**: これは ト ラ スト ー ク の [*] テ スト です いい でしょう",
+    "cost": 0.0,
+    "reliability": {
+        "score": 0.0,
+        "justification": "パイプラインエラー"
+    }
+}
