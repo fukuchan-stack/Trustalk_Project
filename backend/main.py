@@ -1,4 +1,4 @@
-# backend/main.py (デバッグコードを削除した最終版)
+# backend/main.py (コスト計算機能付きの最終版)
 
 import os
 import uuid
@@ -10,10 +10,10 @@ import re
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI
 from pyannote.audio import Pipeline
 import whisper_timestamped as whisper
 from ai_pipelines import run_self_improvement_pipeline
+from cost_calculator import calculate_cost_in_jpy # ★ インポート追加
 
 # --- 環境変数とクライアントの初期化 ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -42,7 +42,7 @@ except Exception as e:
     print(f"Pyannote: Pipelineの読み込みに失敗しました。Error: {e}")
 
 # --- FastAPIアプリケーションのセットアップ ---
-app = FastAPI(title="Trustalk API", version="2.1.3")
+app = FastAPI(title="Trustalk API", version="2.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -106,38 +106,37 @@ async def analyze_audio(
         subprocess.run(command, check=True, capture_output=True, text=True)
         
         audio = whisper.load_audio(wav_file_path)
+        audio_duration_seconds = len(audio) / whisper.audio.SAMPLE_RATE
+        
         transcription_result = whisper.transcribe(whisper_model, audio, language="ja", detect_disfluencies=True)
         diarization_result = diarization_pipeline(wav_file_path)
         
         speakers_text, transcript_text = merge_results(diarization_result, transcription_result)
         
-        cleaned_text = transcript_text
-        if isinstance(transcript_text, str):
-            cleaned_text = re.sub(r'[\(\[].*?[\)\]]', '', cleaned_text)
-            cleaned_text = re.sub(r'[.,!?\s。"「」（）\[\]【】…]+', '', cleaned_text)
-        else:
-            cleaned_text = ""
-
+        cleaned_text = re.sub(r'[\(\[].*?[\)\]]', '', transcript_text or "").strip()
+        cleaned_text = re.sub(r'[.,!?\s。"「」（）\[\]【】…]+', '', cleaned_text)
         MIN_MEANINGFUL_LENGTH = 10
 
         if len(cleaned_text) < MIN_MEANINGFUL_LENGTH:
-            print(f"Transcription is not meaningful ('{transcript_text}'). Skipping LLM pipeline.")
             summary_text = "- 音声が検出されなかったか、内容が短すぎるため要約できませんでした。"
             todos_list = []
             reliability_info = {"score": 0.0, "justification": "有効な音声が検出されなかったため、評価できません。"}
+            token_usage = {"input_tokens": 0, "output_tokens": 0}
         else:
-            summary_text, todos_list, reliability_info = run_self_improvement_pipeline(model_name, transcript_text)
+            summary_text, todos_list, reliability_info, token_usage = run_self_improvement_pipeline(model_name, transcript_text)
+
+        calculated_cost_jpy = calculate_cost_in_jpy(
+            model_name=model_name,
+            total_input_tokens=token_usage.get("input_tokens", 0),
+            total_output_tokens=token_usage.get("output_tokens", 0),
+            audio_duration_seconds=audio_duration_seconds
+        )
 
         result = { 
-            "id": str(uuid.uuid4()),
-            "originalFilename": original_filename,
-            "model_name": model_name,
+            "id": str(uuid.uuid4()), "originalFilename": original_filename, "model_name": model_name,
             "transcript": transcript_text if transcript_text and transcript_text.strip() else "有効な音声が検出されませんでした。",
-            "summary": summary_text, 
-            "todos": todos_list, 
-            "speakers": speakers_text, 
-            "cost": 0.0,
-            "reliability": reliability_info
+            "summary": summary_text, "todos": todos_list, "speakers": speakers_text, 
+            "cost": calculated_cost_jpy, "reliability": reliability_info
         }
 
         history_file_path = os.path.join(HISTORY_DIR, f"{result['id']}.json")
@@ -160,20 +159,13 @@ async def get_history_list():
             file_path = os.path.join(HISTORY_DIR, filename)
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                
                 reliability_data = data.get("reliability", {})
                 score = reliability_data.get("score", 0.0) if isinstance(reliability_data, dict) else 0.0
-
                 history_summary.append({
-                    "id": data.get("id"),
-                    "createdAt": os.path.getmtime(file_path),
-                    "summary": data.get("summary", "要約なし").split('\n')[0],
-                    "originalFilename": data.get("originalFilename", "ファイル名不明"),
-                    "cost": data.get("cost", 0.0),
-                    "model_name": data.get("model_name", "不明"),
-                    "reliability_score": score
+                    "id": data.get("id"), "createdAt": os.path.getmtime(file_path), "summary": data.get("summary", "要約なし").split('\n')[0],
+                    "originalFilename": data.get("originalFilename", "ファイル名不明"), "cost": data.get("cost", 0.0),
+                    "model_name": data.get("model_name", "不明"), "reliability_score": score
                 })
-        
         sorted_history = sorted(history_summary, key=lambda x: x["createdAt"], reverse=True)
         return sorted_history
     except Exception as e:

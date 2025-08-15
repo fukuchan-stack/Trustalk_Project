@@ -1,12 +1,11 @@
-// frontend/src/app/page.tsx
+// frontend/src/app/page.tsx (コストを円表示に対応)
 
-"use client"; // ★★★ この行をハイフンなしの正しい記述に修正 ★★★
+"use client";
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-// 履歴一覧のアイテムの型を定義
 interface HistoryItem {
   id: string;
   createdAt: number;
@@ -17,7 +16,6 @@ interface HistoryItem {
   reliability_score: number;
 }
 
-// 選択可能なAIモデルのリストを定義
 const modelOptions = [
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini (高速・安価)' },
   { value: 'gemini-1.5-flash-latest', label: 'Gemini 1.5 Flash (高速・多機能)' },
@@ -42,9 +40,7 @@ export default function HomePage() {
     if (!apiUrl) return;
     try {
       const res = await fetch(`${apiUrl}/history`);
-      if (!res.ok) {
-        throw new Error('履歴の取得に失敗しました。');
-      }
+      if (!res.ok) throw new Error('履歴の取得に失敗しました。');
       const data: HistoryItem[] = await res.json();
       setHistory(data);
     } catch (err: any) {
@@ -57,9 +53,7 @@ export default function HomePage() {
   }, []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      setFile(event.target.files[0]);
-    }
+    if (event.target.files) setFile(event.target.files[0]);
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -109,33 +103,16 @@ export default function HomePage() {
         <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 mb-12">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">
-                1. 音声ファイルを選択
-              </label>
-              <input id="file-upload" type="file" onChange={handleFileChange} accept="audio/*"
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              />
+              <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">1. 音声ファイルを選択</label>
+              <input id="file-upload" type="file" onChange={handleFileChange} accept="audio/*" className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
             </div>
             <div>
-              <label htmlFor="model-select" className="block text-sm font-medium text-gray-700 mb-2">
-                2. AIモデルを選択
-              </label>
-              <select
-                id="model-select"
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-              >
-                {modelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+              <label htmlFor="model-select" className="block text-sm font-medium text-gray-700 mb-2">2. AIモデルを選択</label>
+              <select id="model-select" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                {modelOptions.map((option) => ( <option key={option.value} value={option.value}>{option.label}</option> ))}
               </select>
             </div>
-            <button type="submit" disabled={isLoading || !file}
-              className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-300"
-            >
+            <button type="submit" disabled={isLoading || !file} className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-300">
               {isLoading ? '分析中...' : '3. 分析を開始'}
             </button>
           </form>
@@ -154,42 +131,23 @@ export default function HomePage() {
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ファイル名</th>
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">使用モデル</th>
                   <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">信頼性</th>
-                  <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">コスト (USD)</th>
+                  <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">コスト (円)</th>
                 </tr>
               </thead>
               <tbody>
                 {history.length > 0 ? (
                   history.map((item, index) => (
                     <tr key={item.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/history/${item.id}`)}>
-                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        <p className="text-blue-600 hover:text-blue-800 whitespace-no-wrap font-semibold">{index + 1}</p>
-                      </td>
-                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        <p className="text-gray-900 whitespace-no-wrap">{new Date(item.createdAt * 1000).toLocaleString('ja-JP')}</p>
-                      </td>
-                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        <p className="text-gray-900 whitespace-no-wrap">{item.originalFilename}</p>
-                      </td>
-                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        <span className="font-mono bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-xs">{item.model_name}</span>
-                      </td>
-                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">
-                        <span className={`font-semibold ${ item.reliability_score > 0.8 ? 'text-green-600' : item.reliability_score > 0.6 ? 'text-yellow-600' : 'text-red-600' }`}>
-                          {(item.reliability_score * 100).toFixed(0)}
-                        </span>
-                        <span className="text-gray-500 text-xs"> / 100</span>
-                      </td>
-                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">
-                        <p className="text-gray-600 whitespace-no-wrap">${item.cost.toFixed(6)}</p>
-                      </td>
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm"><p className="text-blue-600 hover:text-blue-800 whitespace-no-wrap font-semibold">{index + 1}</p></td>
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm"><p className="text-gray-900 whitespace-no-wrap">{new Date(item.createdAt * 1000).toLocaleString('ja-JP')}</p></td>
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm"><p className="text-gray-900 whitespace-no-wrap">{item.originalFilename}</p></td>
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm"><span className="font-mono bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-xs">{item.model_name}</span></td>
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right"><span className={`font-semibold ${ item.reliability_score > 0.8 ? 'text-green-600' : item.reliability_score > 0.6 ? 'text-yellow-600' : 'text-red-600' }`}>{(item.reliability_score * 100).toFixed(0)}</span><span className="text-gray-500 text-xs"> / 100</span></td>
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right"><p className="text-gray-600 whitespace-no-wrap">{Math.ceil(item.cost).toLocaleString()} 円</p></td>
                     </tr>
                   ))
                 ) : (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-center text-gray-500">
-                      分析履歴はまだありません。
-                    </td>
-                  </tr>
+                  <tr><td colSpan={6} className="px-5 py-5 border-b border-gray-200 bg-white text-sm text-center text-gray-500">分析履歴はまだありません。</td></tr>
                 )}
               </tbody>
             </table>

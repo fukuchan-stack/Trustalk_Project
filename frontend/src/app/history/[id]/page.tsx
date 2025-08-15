@@ -1,4 +1,4 @@
-// frontend/src/app/history/[id]/page.tsx
+// frontend/src/app/history/[id]/page.tsx (コストを円表示に対応)
 
 'use client';
 
@@ -44,41 +44,21 @@ export default function HistoryDetailPage() {
   }, [id, apiUrl]);
 
   if (loading) {
-    return (
-        <div className="flex items-center justify-center min-h-screen">
-            <div className="text-xl">読み込み中...</div>
-        </div>
-    );
+    return ( <div className="flex items-center justify-center min-h-screen"><div className="text-xl">読み込み中...</div></div> );
   }
   
   if (error) {
-    return (
-        <div className="p-8 max-w-4xl mx-auto text-red-600">
-            <h1 className="text-2xl font-bold mb-4">エラーが発生しました</h1>
-            <p>{error}</p>
-            <Link href="/" className="text-blue-600 hover:underline mt-4 inline-block">
-                &larr; ホームに戻る
-            </Link>
-        </div>
-    );
+    return ( <div className="p-8 max-w-4xl mx-auto text-red-600"><h1 className="text-2xl font-bold mb-4">エラーが発生しました</h1><p>{error}</p><Link href="/" className="text-blue-600 hover:underline mt-4 inline-block">&larr; ホームに戻る</Link></div> );
   }
 
   if (!result) {
-    return (
-        <div className="p-8 max-w-4xl mx-auto">
-            <h1 className="text-2xl font-bold mb-4">分析結果が見つかりません</h1>
-             <Link href="/" className="text-blue-600 hover:underline mt-4 inline-block">
-                &larr; ホームに戻る
-            </Link>
-        </div>
-    );
+    return ( <div className="p-8 max-w-4xl mx-auto"><h1 className="text-2xl font-bold mb-4">分析結果が見つかりません</h1><Link href="/" className="text-blue-600 hover:underline mt-4 inline-block">&larr; ホームに戻る</Link></div> );
   }
 
   const todosText = result.todos && result.todos.length > 0
     ? result.todos.map(todo => `- ${todo}`).join('\n')
     : 'なし';
     
-  // 信頼性スコアを100点満点で整数に変換し、色を決定
   const reliabilityScore = Math.round(result.reliability.score * 100);
   const scoreColor = reliabilityScore > 80 ? 'text-green-600' : reliabilityScore > 60 ? 'text-yellow-600' : 'text-red-600';
 
@@ -100,10 +80,11 @@ export default function HistoryDetailPage() {
             <ul>
               <li><strong>ファイル名:</strong> {result.originalFilename}</li>
               <li><strong>使用モデル:</strong> <span className="font-mono bg-gray-100 px-1 py-0.5 rounded">{result.model_name}</span></li>
+              {/* ★ 変更点: コストを円で表示 */}
+              <li><strong>概算コスト:</strong> {Math.ceil(result.cost).toLocaleString()} 円</li>
             </ul>
           </div>
           
-          {/* ★ 追加: 信頼性スコア表示カード */}
           <div className="bg-white shadow-md rounded-lg p-6">
             <h2 className="text-2xl font-semibold mb-3">信頼性スコア</h2>
             <div className="flex items-center space-x-4">
