@@ -1,4 +1,4 @@
-// frontend/src/app/page.tsx (コストを円表示に対応)
+// frontend/src/app/page.tsx
 
 "use client";
 
@@ -143,7 +143,9 @@ export default function HomePage() {
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm"><p className="text-gray-900 whitespace-no-wrap">{item.originalFilename}</p></td>
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm"><span className="font-mono bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-xs">{item.model_name}</span></td>
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right"><span className={`font-semibold ${ item.reliability_score > 0.8 ? 'text-green-600' : item.reliability_score > 0.6 ? 'text-yellow-600' : 'text-red-600' }`}>{(item.reliability_score * 100).toFixed(0)}</span><span className="text-gray-500 text-xs"> / 100</span></td>
-                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right"><p className="text-gray-600 whitespace-no-wrap">{Math.ceil(item.cost).toLocaleString()} 円</p></td>
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">
+                        <p className="text-gray-600 whitespace-no-wrap">{item.cost.toFixed(3)} 円</p>
+                      </td>
                     </tr>
                   ))
                 ) : (

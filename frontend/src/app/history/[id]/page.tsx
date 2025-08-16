@@ -1,4 +1,4 @@
-// frontend/src/app/history/[id]/page.tsx (コストを円表示に対応)
+// frontend/src/app/history/[id]/page.tsx
 
 'use client';
 
@@ -80,8 +80,7 @@ export default function HistoryDetailPage() {
             <ul>
               <li><strong>ファイル名:</strong> {result.originalFilename}</li>
               <li><strong>使用モデル:</strong> <span className="font-mono bg-gray-100 px-1 py-0.5 rounded">{result.model_name}</span></li>
-              {/* ★ 変更点: コストを円で表示 */}
-              <li><strong>概算コスト:</strong> {Math.ceil(result.cost).toLocaleString()} 円</li>
+              <li><strong>概算コスト:</strong> {result.cost.toFixed(3)} 円</li>
             </ul>
           </div>
           
