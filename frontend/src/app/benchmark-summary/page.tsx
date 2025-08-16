@@ -2,8 +2,10 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ALL_MODELS } from '../models';
+
 interface BenchmarkResult { model_name: string; summary: string; todos: string[]; reliability: { score: number; justification: string; }; cost: number; execution_time: number; }
 const BENCHMARK_MODELS = ALL_MODELS;
+
 export default function BenchmarkSummaryPage() {
   const [file, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -26,7 +28,7 @@ export default function BenchmarkSummaryPage() {
           <Link href="/benchmark-rag" className="px-4 py-2 text-lg font-semibold text-gray-500 hover:text-blue-600">RAG評価</Link>
         </nav>
         <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 mb-12">
-          <h2 className="text-2xl font-bold text-gray-800 mb-1">モデル性能比較ベンチマーク</h2><p className="text-gray-600 mb-6">一つの音声ファイルをアップロードすると、選択したAIモデルで分析を実行し、結果を比較します。</p>
+          <h2 className="text-2xl font-bold text-gray-800 mb-1">モデル性能比較ベンチマーク</h2><p className="text-gray-700 mb-6">一つの音声ファイルをアップロードすると、選択したAIモデルで分析を実行し、結果を比較します。</p>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">1. 分析するモデルを選択</label>
@@ -35,7 +37,14 @@ export default function BenchmarkSummaryPage() {
                 {BENCHMARK_MODELS.map(model => ( <div key={model.value} className="flex items-center"><input id={model.value} type="checkbox" checked={selectedModels[model.value] || false} onChange={() => handleCheckboxChange(model.value)} className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" /><label htmlFor={model.value} className="ml-3 block text-sm font-medium text-gray-700">{model.label}</label></div> ))}
               </div>
             </div>
-            <div><label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">2. 音声ファイルを選択</label><input id="file-upload" type="file" onChange={handleFileChange} accept="audio/*" className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">2. 音声ファイルを選択</label>
+              <label htmlFor="file-upload" className="w-full cursor-pointer bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center justify-center hover:bg-gray-100 transition-colors">
+                <span className="text-green-600 font-semibold">ファイルを選択するか、ドラッグ＆ドロップ</span>
+                <span className="text-gray-800 font-medium text-sm mt-1">{file ? file.name : "ファイルが選択されていません"}</span>
+              </label>
+              <input id="file-upload" type="file" onChange={handleFileChange} accept="audio/*" className="hidden" />
+            </div>
             <button type="submit" disabled={isLoading || !file} className="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-300">{isLoading ? '選択したモデルで分析中...' : 'ベンチマークを開始'}</button>
           </form>
           {error && ( <div className="mt-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg"><p className="font-bold">エラー</p><p>{error}</p></div> )}

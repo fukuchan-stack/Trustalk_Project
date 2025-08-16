@@ -1,5 +1,3 @@
-# backend/main.py (遅延読み込みを実装した最終確定版)
-
 import os
 import uuid
 import json
@@ -151,10 +149,22 @@ async def benchmark_rag(qa_file: UploadFile = File(...), context_file: UploadFil
         selected_indices = json.loads(selected_indices_json)
         all_qa_records = _parse_csv_to_records(qa_file.file, required_columns=["question", "ground_truth"])
         selected_qa_records = [all_qa_records[i] for i in selected_indices]
-        if len(selected_qa_records) == 0:
+        if not selected_qa_records:
             raise HTTPException(status_code=400, detail="評価対象の質問が選択されていません。")
-        results = run_rag_benchmark_pipeline(qa_dataset=selected_qa_records, context_file=context_file.file, model_name=model_name)
-        return JSONResponse(content=results)
+        results_data = run_rag_benchmark_pipeline(
+            qa_dataset=selected_qa_records,
+            context_file=context_file.file,
+            model_name=model_name
+        )
+        token_usage = results_data.get("token_usage", {"input_tokens": 0, "output_tokens": 0})
+        calculated_cost = calculate_cost_in_jpy(
+            model_name=model_name,
+            total_input_tokens=token_usage.get("input_tokens", 0),
+            total_output_tokens=token_usage.get("output_tokens", 0),
+            audio_duration_seconds=0
+        )
+        results_data["total_cost"] = calculated_cost
+        return JSONResponse(content=results_data)
     except Exception as e:
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"RAGベンチマーク中にエラーが発生しました: {str(e)}")
