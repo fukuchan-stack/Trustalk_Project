@@ -1,4 +1,4 @@
-# backend/main.py (ベンチマークAPI付き)
+# backend/main.py (遅延読み込みを実装した最終確定版)
 
 import os
 import uuid
@@ -7,49 +7,49 @@ import torch
 import traceback
 import subprocess
 import re
+import threading
+import pandas as pd
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pyannote.audio import Pipeline
 import whisper_timestamped as whisper
 from ai_pipelines import run_self_improvement_pipeline, run_benchmark_pipeline
+from rag_pipelines import run_rag_benchmark_pipeline, _parse_csv_to_records
 from cost_calculator import calculate_cost_in_jpy
 
-# --- 環境変数とクライアントの初期化 ---
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# --- 環境変数 ---
 HF_TOKEN = os.getenv("HF_TOKEN")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 if not HF_TOKEN:
     raise ValueError("環境変数 HF_TOKEN が設定されていません。")
 
-# --- AIモデルの初期化 ---
+# --- AIモデルのグローバル変数 (遅延読み込みのためNoneで初期化) ---
 device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {device}")
-whisper_model, diarization_pipeline = None, None
-try:
-    print("Whisper: Loading 'base' model...")
-    whisper_model = whisper.load_model("base", device=device)
-    print("Whisper: Model loaded successfully.")
-except Exception as e:
-    print(f"Whisper: モデルの読み込みに失敗しました。Error: {e}")
-try:
-    print("Pyannote: Loading diarization pipeline...")
-    diarization_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=HF_TOKEN).to(torch.device(device))
-    print("Pyannote: Diarization pipeline loaded successfully.")
-except Exception as e:
-    print(f"Pyannote: Pipelineの読み込みに失敗しました。Error: {e}")
+whisper_model = None
+diarization_pipeline = None
+whisper_lock = threading.Lock()
+pyannote_lock = threading.Lock()
+
+# --- モデル読み込み関数 ---
+def load_whisper_model():
+    global whisper_model
+    with whisper_lock:
+        if whisper_model is None:
+            print("Whisper: Loading 'base' model for the first time...")
+            whisper_model = whisper.load_model("base", device=device)
+            print("Whisper: Model loaded successfully.")
+
+def load_pyannote_pipeline():
+    global diarization_pipeline
+    with pyannote_lock:
+        if diarization_pipeline is None:
+            print("Pyannote: Loading diarization pipeline for the first time...")
+            diarization_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=HF_TOKEN).to(torch.device(device))
+            print("Pyannote: Diarization pipeline loaded successfully.")
 
 # --- FastAPIアプリケーションのセットアップ ---
-app = FastAPI(title="Trustalk API", version="2.2.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_origin_regex=r"https?://.*\.github\.dev",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="Trustalk API", version="2.3.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 HISTORY_DIR = "history"
 os.makedirs(HISTORY_DIR, exist_ok=True)
 
@@ -76,8 +76,7 @@ def merge_results(diarization, transcription):
         if speaker != current_speaker:
             full_transcript_with_speakers += f"**{current_speaker}**: {current_speech.strip()}\n\n"
             current_speech = ""
-        current_speech += word + " "
-        current_speaker = speaker
+        current_speech += word + " "; current_speaker = speaker
     if current_speech: full_transcript_with_speakers += f"**{current_speaker}**: {current_speech.strip()}\n"
     return full_transcript_with_speakers.strip(), transcription.get("text", "")
 
@@ -87,15 +86,12 @@ def read_root(): return {"status": "ok", "message": "Welcome to Trustalk API!"}
 
 @app.post("/analyze", summary="音声ファイルの分析")
 async def analyze_audio(file: UploadFile = File(...), model_name: str = Form("gpt-4o-mini")):
-    if whisper_model is None or diarization_pipeline is None:
-        raise HTTPException(status_code=503, detail="AIモデルが利用できません。")
-    original_filename = file.filename
-    temp_file_path = f"/tmp/{uuid.uuid4()}_{original_filename}"
+    load_whisper_model()
+    load_pyannote_pipeline()
+    original_filename, temp_file_path = file.filename, f"/tmp/{uuid.uuid4()}_{file.filename}"
     wav_file_path = f"{os.path.splitext(temp_file_path)[0]}.wav"
     try:
-        with open(temp_file_path, "wb") as buffer:
-            contents = await file.read()
-            buffer.write(contents)
+        with open(temp_file_path, "wb") as buffer: contents = await file.read(); buffer.write(contents)
         command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]
         subprocess.run(command, check=True, capture_output=True, text=True)
         audio = whisper.load_audio(wav_file_path)
@@ -105,16 +101,14 @@ async def analyze_audio(file: UploadFile = File(...), model_name: str = Form("gp
         speakers_text, transcript_text = merge_results(diarization_result, transcription_result)
         cleaned_text = re.sub(r'[\(\[].*?[\)\]]', '', transcript_text or "").strip()
         cleaned_text = re.sub(r'[.,!?\s。"「」（）\[\]【】…]+', '', cleaned_text)
-        MIN_MEANINGFUL_LENGTH = 10
-        if len(cleaned_text) < MIN_MEANINGFUL_LENGTH:
-            summary_text, todos_list, reliability_info, token_usage = "- 音声が検出されなかったか、内容が短すぎるため要約できませんでした。", [], {"score": 0.0, "justification": "有効な音声が検出されなかったため、評価できません。"}, {"input_tokens": 0, "output_tokens": 0}
+        if len(cleaned_text) < 10:
+            summary_text, todos_list, reliability_info, token_usage = "- 音声が短すぎるため要約できません。", [], {"score": 0.0, "justification": "評価できません。"}, {"input_tokens": 0, "output_tokens": 0}
         else:
             summary_text, todos_list, reliability_info, token_usage = run_self_improvement_pipeline(model_name, transcript_text)
         calculated_cost_jpy = calculate_cost_in_jpy(model_name=model_name, total_input_tokens=token_usage.get("input_tokens", 0), total_output_tokens=token_usage.get("output_tokens", 0), audio_duration_seconds=audio_duration_seconds)
         result = { "id": str(uuid.uuid4()), "originalFilename": original_filename, "model_name": model_name, "transcript": transcript_text if transcript_text and transcript_text.strip() else "有効な音声が検出されませんでした。", "summary": summary_text, "todos": todos_list, "speakers": speakers_text, "cost": calculated_cost_jpy, "reliability": reliability_info }
         history_file_path = os.path.join(HISTORY_DIR, f"{result['id']}.json")
-        with open(history_file_path, "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=4)
+        with open(history_file_path, "w", encoding="utf-8") as f: json.dump(result, f, ensure_ascii=False, indent=4)
         return JSONResponse(content=result)
     except Exception as e:
         print(traceback.format_exc())
@@ -124,26 +118,14 @@ async def analyze_audio(file: UploadFile = File(...), model_name: str = Form("gp
         if os.path.exists(wav_file_path): os.remove(wav_file_path)
 
 @app.post("/benchmark-summary", summary="単一の音声ファイルで、複数のモデルの性能を比較する")
-async def benchmark_summary_audio(
-    file: UploadFile = File(...),
-    models_to_benchmark: str = Form(...)
-):
-    if whisper_model is None:
-        raise HTTPException(status_code=503, detail="Whisperモデルが利用できません。")
-    try:
-        models_to_run = json.loads(models_to_benchmark)
-        if not isinstance(models_to_run, list) or len(models_to_run) == 0:
-            raise ValueError()
-    except Exception:
-        raise HTTPException(status_code=400, detail="無効なモデルリストが送信されました。")
-
-    original_filename = file.filename
-    temp_file_path = f"/tmp/{uuid.uuid4()}_{original_filename}"
+async def benchmark_summary_audio(file: UploadFile = File(...), models_to_benchmark: str = Form(...)):
+    load_whisper_model()
+    try: models_to_run = json.loads(models_to_benchmark)
+    except Exception: raise HTTPException(status_code=400, detail="無効なモデルリストが送信されました。")
+    original_filename, temp_file_path = file.filename, f"/tmp/{uuid.uuid4()}_{file.filename}"
     wav_file_path = f"{os.path.splitext(temp_file_path)[0]}.wav"
     try:
-        with open(temp_file_path, "wb") as buffer:
-            contents = await file.read()
-            buffer.write(contents)
+        with open(temp_file_path, "wb") as buffer: contents = await file.read(); buffer.write(contents)
         command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]
         subprocess.run(command, check=True, capture_output=True, text=True)
         audio = whisper.load_audio(wav_file_path)
@@ -151,20 +133,10 @@ async def benchmark_summary_audio(
         transcription_result = whisper.transcribe(whisper_model, audio, language="ja", detect_disfluencies=True)
         transcript_text = transcription_result.get("text", "")
         cleaned_text = re.sub(r'[\(\[].*?[\)\]]', '', transcript_text or "").strip()
-        cleaned_text = re.sub(r'[.,!?\s。"「」（）\[\]【】…]+', '', cleaned_text)
-        if len(cleaned_text) < 10:
-            raise HTTPException(status_code=400, detail="音声が検出されなかったか、内容が短すぎるためベンチマークを実行できません。")
-        
+        if len(cleaned_text) < 10: raise HTTPException(status_code=400, detail="内容が短すぎるためベンチマークを実行できません。")
         benchmark_results = run_benchmark_pipeline(transcript_text, models_to_run)
-        
         for result in benchmark_results:
-            result["cost"] = calculate_cost_in_jpy(
-                model_name=result["model_name"],
-                total_input_tokens=result["token_usage"].get("input_tokens", 0),
-                total_output_tokens=result["token_usage"].get("output_tokens", 0),
-                audio_duration_seconds=audio_duration_seconds
-            )
-
+            result["cost"] = calculate_cost_in_jpy(model_name=result["model_name"], total_input_tokens=result["token_usage"].get("input_tokens", 0), total_output_tokens=result["token_usage"].get("output_tokens", 0), audio_duration_seconds=audio_duration_seconds)
         return JSONResponse(content=benchmark_results)
     except Exception as e:
         print(traceback.format_exc())
@@ -172,6 +144,20 @@ async def benchmark_summary_audio(
     finally:
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
         if os.path.exists(wav_file_path): os.remove(wav_file_path)
+
+@app.post("/benchmark-rag", summary="CSVデータセットでRAG性能を評価する")
+async def benchmark_rag(qa_file: UploadFile = File(...), context_file: UploadFile = File(...), model_name: str = Form(...), selected_indices_json: str = Form(...)):
+    try:
+        selected_indices = json.loads(selected_indices_json)
+        all_qa_records = _parse_csv_to_records(qa_file.file, required_columns=["question", "ground_truth"])
+        selected_qa_records = [all_qa_records[i] for i in selected_indices]
+        if len(selected_qa_records) == 0:
+            raise HTTPException(status_code=400, detail="評価対象の質問が選択されていません。")
+        results = run_rag_benchmark_pipeline(qa_dataset=selected_qa_records, context_file=context_file.file, model_name=model_name)
+        return JSONResponse(content=results)
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"RAGベンチマーク中にエラーが発生しました: {str(e)}")
 
 @app.get("/history", summary="分析履歴の一覧を取得")
 async def get_history_list():

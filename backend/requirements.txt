@@ -17,3 +17,10 @@ langchain-openai
 langchain-google-genai
 langchain-anthropic
 langchain-community
+
+# For RAG Benchmark feature
+pandas
+sentence-transformers
+faiss-cpu
+langchain-huggingface
+chardet
