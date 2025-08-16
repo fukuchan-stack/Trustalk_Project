@@ -1,4 +1,4 @@
-# backend/main.py (コスト計算機能付きの最終版)
+# backend/main.py (ベンチマークAPI付き)
 
 import os
 import uuid
@@ -12,17 +12,16 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pyannote.audio import Pipeline
 import whisper_timestamped as whisper
-from ai_pipelines import run_self_improvement_pipeline
-from cost_calculator import calculate_cost_in_jpy # ★ インポート追加
+from ai_pipelines import run_self_improvement_pipeline, run_benchmark_pipeline
+from cost_calculator import calculate_cost_in_jpy
 
 # --- 環境変数とクライアントの初期化 ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 HF_TOKEN = os.getenv("HF_TOKEN")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-
 if not HF_TOKEN:
-    raise ValueError("環境変数 HF_TOKEN が設定されていません。GitHub Secretsを確認してください。")
+    raise ValueError("環境変数 HF_TOKEN が設定されていません。")
 
 # --- AIモデルの初期化 ---
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -87,13 +86,9 @@ def merge_results(diarization, transcription):
 def read_root(): return {"status": "ok", "message": "Welcome to Trustalk API!"}
 
 @app.post("/analyze", summary="音声ファイルの分析")
-async def analyze_audio(
-    file: UploadFile = File(...), 
-    model_name: str = Form("gpt-4o-mini")
-):
+async def analyze_audio(file: UploadFile = File(...), model_name: str = Form("gpt-4o-mini")):
     if whisper_model is None or diarization_pipeline is None:
         raise HTTPException(status_code=503, detail="AIモデルが利用できません。")
-    
     original_filename = file.filename
     temp_file_path = f"/tmp/{uuid.uuid4()}_{original_filename}"
     wav_file_path = f"{os.path.splitext(temp_file_path)[0]}.wav"
@@ -101,44 +96,22 @@ async def analyze_audio(
         with open(temp_file_path, "wb") as buffer:
             contents = await file.read()
             buffer.write(contents)
-        
         command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]
         subprocess.run(command, check=True, capture_output=True, text=True)
-        
         audio = whisper.load_audio(wav_file_path)
         audio_duration_seconds = len(audio) / whisper.audio.SAMPLE_RATE
-        
         transcription_result = whisper.transcribe(whisper_model, audio, language="ja", detect_disfluencies=True)
         diarization_result = diarization_pipeline(wav_file_path)
-        
         speakers_text, transcript_text = merge_results(diarization_result, transcription_result)
-        
         cleaned_text = re.sub(r'[\(\[].*?[\)\]]', '', transcript_text or "").strip()
         cleaned_text = re.sub(r'[.,!?\s。"「」（）\[\]【】…]+', '', cleaned_text)
         MIN_MEANINGFUL_LENGTH = 10
-
         if len(cleaned_text) < MIN_MEANINGFUL_LENGTH:
-            summary_text = "- 音声が検出されなかったか、内容が短すぎるため要約できませんでした。"
-            todos_list = []
-            reliability_info = {"score": 0.0, "justification": "有効な音声が検出されなかったため、評価できません。"}
-            token_usage = {"input_tokens": 0, "output_tokens": 0}
+            summary_text, todos_list, reliability_info, token_usage = "- 音声が検出されなかったか、内容が短すぎるため要約できませんでした。", [], {"score": 0.0, "justification": "有効な音声が検出されなかったため、評価できません。"}, {"input_tokens": 0, "output_tokens": 0}
         else:
             summary_text, todos_list, reliability_info, token_usage = run_self_improvement_pipeline(model_name, transcript_text)
-
-        calculated_cost_jpy = calculate_cost_in_jpy(
-            model_name=model_name,
-            total_input_tokens=token_usage.get("input_tokens", 0),
-            total_output_tokens=token_usage.get("output_tokens", 0),
-            audio_duration_seconds=audio_duration_seconds
-        )
-
-        result = { 
-            "id": str(uuid.uuid4()), "originalFilename": original_filename, "model_name": model_name,
-            "transcript": transcript_text if transcript_text and transcript_text.strip() else "有効な音声が検出されませんでした。",
-            "summary": summary_text, "todos": todos_list, "speakers": speakers_text, 
-            "cost": calculated_cost_jpy, "reliability": reliability_info
-        }
-
+        calculated_cost_jpy = calculate_cost_in_jpy(model_name=model_name, total_input_tokens=token_usage.get("input_tokens", 0), total_output_tokens=token_usage.get("output_tokens", 0), audio_duration_seconds=audio_duration_seconds)
+        result = { "id": str(uuid.uuid4()), "originalFilename": original_filename, "model_name": model_name, "transcript": transcript_text if transcript_text and transcript_text.strip() else "有効な音声が検出されませんでした。", "summary": summary_text, "todos": todos_list, "speakers": speakers_text, "cost": calculated_cost_jpy, "reliability": reliability_info }
         history_file_path = os.path.join(HISTORY_DIR, f"{result['id']}.json")
         with open(history_file_path, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=4)
@@ -146,6 +119,56 @@ async def analyze_audio(
     except Exception as e:
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"分析中に予期せぬエラーが発生しました: {str(e)}")
+    finally:
+        if os.path.exists(temp_file_path): os.remove(temp_file_path)
+        if os.path.exists(wav_file_path): os.remove(wav_file_path)
+
+@app.post("/benchmark-summary", summary="単一の音声ファイルで、複数のモデルの性能を比較する")
+async def benchmark_summary_audio(
+    file: UploadFile = File(...),
+    models_to_benchmark: str = Form(...)
+):
+    if whisper_model is None:
+        raise HTTPException(status_code=503, detail="Whisperモデルが利用できません。")
+    try:
+        models_to_run = json.loads(models_to_benchmark)
+        if not isinstance(models_to_run, list) or len(models_to_run) == 0:
+            raise ValueError()
+    except Exception:
+        raise HTTPException(status_code=400, detail="無効なモデルリストが送信されました。")
+
+    original_filename = file.filename
+    temp_file_path = f"/tmp/{uuid.uuid4()}_{original_filename}"
+    wav_file_path = f"{os.path.splitext(temp_file_path)[0]}.wav"
+    try:
+        with open(temp_file_path, "wb") as buffer:
+            contents = await file.read()
+            buffer.write(contents)
+        command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        audio = whisper.load_audio(wav_file_path)
+        audio_duration_seconds = len(audio) / whisper.audio.SAMPLE_RATE
+        transcription_result = whisper.transcribe(whisper_model, audio, language="ja", detect_disfluencies=True)
+        transcript_text = transcription_result.get("text", "")
+        cleaned_text = re.sub(r'[\(\[].*?[\)\]]', '', transcript_text or "").strip()
+        cleaned_text = re.sub(r'[.,!?\s。"「」（）\[\]【】…]+', '', cleaned_text)
+        if len(cleaned_text) < 10:
+            raise HTTPException(status_code=400, detail="音声が検出されなかったか、内容が短すぎるためベンチマークを実行できません。")
+        
+        benchmark_results = run_benchmark_pipeline(transcript_text, models_to_run)
+        
+        for result in benchmark_results:
+            result["cost"] = calculate_cost_in_jpy(
+                model_name=result["model_name"],
+                total_input_tokens=result["token_usage"].get("input_tokens", 0),
+                total_output_tokens=result["token_usage"].get("output_tokens", 0),
+                audio_duration_seconds=audio_duration_seconds
+            )
+
+        return JSONResponse(content=benchmark_results)
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"ベンチマーク中に予期せぬエラーが発生しました: {str(e)}")
     finally:
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
         if os.path.exists(wav_file_path): os.remove(wav_file_path)

@@ -1,10 +1,9 @@
-// frontend/src/app/page.tsx
-
 "use client";
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ALL_MODELS } from './models'; // 共通ファイルからインポート
 
 interface HistoryItem {
   id: string;
@@ -16,14 +15,8 @@ interface HistoryItem {
   reliability_score: number;
 }
 
-const modelOptions = [
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (高速・安価)' },
-  { value: 'gemini-1.5-flash-latest', label: 'Gemini 1.5 Flash (高速・多機能)' },
-  { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (最速・最安価)' },
-  { value: 'gpt-4o', label: 'GPT-4o (高性能)' },
-  { value: 'gemini-1.5-pro-latest', label: 'Gemini 1.5 Pro (高性能・長時間対応)' },
-  { value: 'claude-3-sonnet-20240229', label: 'Claude 3 Sonnet (バランス)' },
-];
+// 共通ファイルを使うように変更
+const modelOptions = ALL_MODELS;
 
 export default function HomePage() {
   const [file, setFile] = useState<File | null>(null);
@@ -95,10 +88,15 @@ export default function HomePage() {
   return (
     <main className="flex min-h-screen flex-col items-center p-4 sm:p-8 bg-gray-50">
       <div className="w-full max-w-6xl">
-        <div className="text-center mb-10">
+        <div className="text-center mb-8">
             <h1 className="text-4xl font-bold text-gray-800 mb-2">Trustalk</h1>
             <p className="text-lg text-gray-600">AIによる音声ファイル分析プラットフォーム</p>
         </div>
+
+        <nav className="mb-8 flex justify-center border-b border-gray-300">
+          <Link href="/" className="px-4 py-2 text-lg font-semibold text-blue-600 border-b-2 border-blue-600">個別分析</Link>
+          <Link href="/benchmark-summary" className="px-4 py-2 text-lg font-semibold text-gray-500 hover:text-blue-600">モデル性能比較</Link>
+        </nav>
 
         <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 mb-12">
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -121,7 +119,7 @@ export default function HomePage() {
         </div>
         
         <div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">分析履歴</h2>
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">個別分析の履歴</h2>
           <div className="bg-white shadow-md rounded-lg overflow-hidden">
             <table className="min-w-full leading-normal">
               <thead>
@@ -143,9 +141,7 @@ export default function HomePage() {
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm"><p className="text-gray-900 whitespace-no-wrap">{item.originalFilename}</p></td>
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm"><span className="font-mono bg-gray-100 text-gray-700 px-2 py-1 rounded-md text-xs">{item.model_name}</span></td>
                       <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right"><span className={`font-semibold ${ item.reliability_score > 0.8 ? 'text-green-600' : item.reliability_score > 0.6 ? 'text-yellow-600' : 'text-red-600' }`}>{(item.reliability_score * 100).toFixed(0)}</span><span className="text-gray-500 text-xs"> / 100</span></td>
-                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">
-                        <p className="text-gray-600 whitespace-no-wrap">{item.cost.toFixed(3)} 円</p>
-                      </td>
+                      <td className="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right"><p className="text-gray-600 whitespace-no-wrap">{item.cost.toFixed(3)} 円</p></td>
                     </tr>
                   ))
                 ) : (

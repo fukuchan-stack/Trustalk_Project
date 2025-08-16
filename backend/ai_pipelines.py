@@ -1,13 +1,15 @@
-# backend/ai_pipelines.py (コスト計算対応版)
+# backend/ai_pipelines.py (ベンチマーク機能付き)
 
+import time
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_community.callbacks import get_openai_callback
 from models import get_llm
 
-def _generate_draft(llm, transcript_text: str):
-    print("LLM [Step 1/4]: Generating draft...")
-    llm_with_json = llm.bind(response_format={"type": "json_object"})
+def _generate_draft(llm, model_name: str, transcript_text: str):
+    """ステップ1: ドラフト生成 (JSON出力)"""
+    print(f"LLM [Step 1/4]: Generating draft with {model_name}...")
+    
     prompt = ChatPromptTemplate.from_messages([
         ("system", "あなたは、会議の文字起こしを分析し、要点とアクションアイテムを抽出するアシスタントです。"),
         ("user", """以下の会議の文字起こしから、要約とToDoリストを作成してください。
@@ -26,13 +28,21 @@ def _generate_draft(llm, transcript_text: str):
 }}
 """)
     ])
-    chain = prompt | llm_with_json | JsonOutputParser()
+    
+    if model_name.startswith("gpt"):
+        chain = prompt | llm.bind(response_format={"type": "json_object"}) | JsonOutputParser()
+    else:
+        chain = prompt | llm | JsonOutputParser()
+        
     return chain.invoke({"transcript": transcript_text})
 
-def _review_draft(llm, transcript_text: str, draft: dict):
-    print("LLM [Step 2/4]: Reviewing draft...")
+def _review_draft(llm, model_name: str, transcript_text: str, draft: dict):
+    """ステップ2: レビュー (テキスト出力)"""
+    print(f"LLM [Step 2/4]: Reviewing draft with {model_name}...")
+    
     draft_summary = "\n".join(f"- {item}" for item in draft.get("summary", []))
     draft_todos = "\n".join(f"- {item}" for item in draft.get("todos", []))
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", "あなたは、AIアシスタントが作成した会議の要約とToDoリストを評価する、優秀な編集長です。"),
         ("user", """以下の「元の文字起こし」と、それに基づいてAIが作成した「ドラフト」をレビューしてください。
@@ -55,14 +65,21 @@ def _review_draft(llm, transcript_text: str, draft: dict):
 あなたのレビューコメントを簡潔に記述してください。
 """)
     ])
-    chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"transcript": transcript_text, "summary": draft_summary, "todos": draft_todos})
 
-def _revise_draft(llm, transcript_text: str, draft: dict, review_feedback: str):
-    print("LLM [Step 3/4]: Revising draft...")
-    llm_with_json = llm.bind(response_format={"type": "json_object"})
+    chain = prompt | llm | StrOutputParser()
+    return chain.invoke({
+        "transcript": transcript_text,
+        "summary": draft_summary,
+        "todos": draft_todos
+    })
+
+def _revise_draft(llm, model_name: str, transcript_text: str, draft: dict, review_feedback: str):
+    """ステップ3: 改善 (JSON出力)"""
+    print(f"LLM [Step 3/4]: Revising draft with {model_name}...")
+    
     draft_summary = "\n".join(f"- {item}" for item in draft.get("summary", []))
     draft_todos = "\n".join(f"- {item}" for item in draft.get("todos", []))
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", "あなたは、編集長からのレビューフィードバックを元に、会議の要約とToDoリストを改善するアシスタントです。"),
         ("user", """以下の「元の文字起こし」、「最初のドラフト」、そして「編集長からのレビュー」をすべて考慮して、最終的な成果物を作成してください。
@@ -88,12 +105,23 @@ def _revise_draft(llm, transcript_text: str, draft: dict, review_feedback: str):
 }}
 """)
     ])
-    chain = prompt | llm_with_json | JsonOutputParser()
-    return chain.invoke({"transcript": transcript_text, "summary": draft_summary, "todos": draft_todos, "feedback": review_feedback})
+    
+    if model_name.startswith("gpt"):
+        chain = prompt | llm.bind(response_format={"type": "json_object"}) | JsonOutputParser()
+    else:
+        chain = prompt | llm | JsonOutputParser()
+        
+    return chain.invoke({
+        "transcript": transcript_text,
+        "summary": draft_summary,
+        "todos": draft_todos,
+        "feedback": review_feedback
+    })
 
-def _evaluate_reliability(llm, transcript_text: str, final_summary: str):
-    print("LLM [Step 4/4]: Evaluating reliability...")
-    llm_with_json = llm.bind(response_format={"type": "json_object"})
+def _evaluate_reliability(llm, model_name: str, transcript_text: str, final_summary: str):
+    """ステップ4: 信頼性評価 (JSON出力)"""
+    print(f"LLM [Step 4/4]: Evaluating reliability with {model_name}...")
+    
     prompt = ChatPromptTemplate.from_messages([
         ("system", "あなたは、AIが生成した要約を、元の文字起こしと比較して評価する厳格な評価者です。"),
         ("user", """以下の「元の文字起こし」と「AIによる要約」を比較してください。
@@ -119,34 +147,66 @@ def _evaluate_reliability(llm, transcript_text: str, final_summary: str):
 }}
 """)
     ])
-    chain = prompt | llm_with_json | JsonOutputParser()
+
+    if model_name.startswith("gpt"):
+        chain = prompt | llm.bind(response_format={"type": "json_object"}) | JsonOutputParser()
+    else:
+        chain = prompt | llm | JsonOutputParser()
+
     evaluation = chain.invoke({"transcript": transcript_text, "summary": final_summary})
-    scores = [evaluation.get("faithfulness_score", 0), evaluation.get("comprehensiveness_score", 0), evaluation.get("conciseness_score", 0)]
+    
+    scores = [
+        evaluation.get("faithfulness_score", 0),
+        evaluation.get("comprehensiveness_score", 0),
+        evaluation.get("conciseness_score", 0)
+    ]
     average_score = sum(scores) / len(scores) if scores else 0
-    return {"score": average_score, "justification": evaluation.get("justification", "評価に失敗しました。")}
+    
+    return {
+        "score": average_score,
+        "justification": evaluation.get("justification", "評価に失敗しました。")
+    }
 
 def run_self_improvement_pipeline(model_name: str, transcript_text: str):
-    """
-    「ドラフト生成 → レビュー → 改善 → 評価」のパイプライン全体を実行し、結果とトークン使用量を返す
-    """
+    """単一モデルでパイプライン全体を実行し、結果とトークン使用量を返す"""
     try:
         llm = get_llm(model_name)
-        
         with get_openai_callback() as cb:
-            draft_result = _generate_draft(llm, transcript_text)
-            review_feedback = _review_draft(llm, transcript_text, draft_result)
-            final_result = _revise_draft(llm, transcript_text, draft_result, review_feedback)
+            draft_result = _generate_draft(llm, model_name, transcript_text)
+            review_feedback = _review_draft(llm, model_name, transcript_text, draft_result)
+            final_result = _revise_draft(llm, model_name, transcript_text, draft_result, review_feedback)
             summary = "\n".join(f"- {item}" for item in final_result.get("summary", []))
             todos = final_result.get("todos", [])
-            reliability_info = _evaluate_reliability(llm, transcript_text, summary)
-            
-            token_usage = {
-                "input_tokens": cb.prompt_tokens,
-                "output_tokens": cb.completion_tokens,
-            }
-
+            reliability_info = _evaluate_reliability(llm, model_name, transcript_text, summary)
+            token_usage = {"input_tokens": cb.prompt_tokens, "output_tokens": cb.completion_tokens}
+        return summary, todos, reliability_info, token_usage
+    except Exception as e:
+        print(f"LLMパイプラインでエラーが発生しました ({model_name}): {e}")
+        summary = "要約の生成に失敗しました。"
+        todos = ["ToDoの抽出に失敗しました。"]
+        reliability_info = {"score": 0.0, "justification": f"パイプラインエラー: {e}"}
+        token_usage = {"input_tokens": 0, "output_tokens": 0}
         return summary, todos, reliability_info, token_usage
 
-    except Exception as e:
-        print(f"LLMパイプラインでエラーが発生しました: {e}")
-        return "要約の生成に失敗しました。", ["ToDoの抽出に失敗しました。"], {"score": 0.0, "justification": "パイプラインエラー"}, {"input_tokens": 0, "output_tokens": 0}
+def run_benchmark_pipeline(transcript_text: str, models_to_run: list[str]):
+    """指定されたモデルリストで分析を順番に実行し、結果と性能を比較する"""
+    benchmark_results = []
+    for model_name in models_to_run:
+        print(f"\n--- Starting benchmark for model: {model_name} ---")
+        start_time = time.time()
+        summary, todos, reliability, token_usage = run_self_improvement_pipeline(
+            model_name=model_name,
+            transcript_text=transcript_text
+        )
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"--- Finished benchmark for {model_name} in {execution_time:.2f} seconds ---")
+        benchmark_results.append({
+            "model_name": model_name,
+            "summary": summary,
+            "todos": todos,
+            "reliability": reliability,
+            "token_usage": token_usage,
+            "execution_time": execution_time
+        })
+    return benchmark_results
