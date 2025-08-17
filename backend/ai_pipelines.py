@@ -9,30 +9,21 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from langchain_core.output_parsers import StrOutputParser
 from models import get_llm
 
 def _extract_token_usage(response):
     """LangChainのレスポンスオブジェクトからトークン使用量を抽出する（全プロバイダー対応版）"""
     usage = {}
     if hasattr(response, 'response_metadata') and response.response_metadata:
-        # Google Gemini
-        if "usage_metadata" in response.response_metadata:
+        if "usage_metadata" in response.response_metadata: # Google Gemini
             usage_meta = response.response_metadata["usage_metadata"]
-            return {
-                "input_tokens": usage_meta.get("prompt_token_count", 0),
-                "output_tokens": usage_meta.get("candidates_token_count", 0)
-            }
-        # OpenAI & Anthropic Claude
-        elif "token_usage" in response.response_metadata:
+            return {"input_tokens": usage_meta.get("prompt_token_count", 0), "output_tokens": usage_meta.get("candidates_token_count", 0)}
+        elif "token_usage" in response.response_metadata: # OpenAI
             usage = response.response_metadata["token_usage"]
-        elif "usage" in response.response_metadata: # Anthropicの別の形式
+        elif "usage" in response.response_metadata: # Anthropic Claude
             usage = response.response_metadata["usage"]
-    
-    return {
-        "input_tokens": usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0),
-        "output_tokens": usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
-    }
+    return {"input_tokens": usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0), "output_tokens": usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)}
 
 def _parse_csv_to_records(file, required_columns: list[str]):
     try:
@@ -60,125 +51,55 @@ def create_vector_store(context_file):
     print("--- RAG: Vector store created successfully ---")
     return vector_store
 
-def _generate_draft(llm, model_name: str, transcript_text: str):
+def _generate_draft(llm, model_name, transcript_text):
     print(f"LLM [Step 1/4]: Generating draft with {model_name}...")
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "あなたは、会議の文字起こしを分析し、要点とアクションアイテムを抽出するアシスタントです。"),
-        ("user", """以下の会議の文字起こしから、要約とToDoリストを作成してください。
-# 文字起こし
-{transcript}
-# 命令
-1. この会議の要約を3〜5個の箇条書きで作成してください。
-2. この会議で発生したToDo（アクションアイテム）をリストアップしてください。
-あなたの回答は、必ず以下のjson形式で返してください。
-{{"summary": ["要約1", "要約2"], "todos": ["ToDo1", "ToDo2"]}}""")
-    ])
-    if model_name.startswith("gpt"):
-        chain = prompt | llm.bind(response_format={"type": "json_object"})
-    else:
-        chain = prompt | llm
+    prompt = ChatPromptTemplate.from_messages([("system", "あなたは、会議の文字起こしを分析し、要点とアクションアイテムを抽出するアシスタントです。"),("user", "以下の会議の文字起こしから、要約とToDoリストを作成してください。\n\n# 文字起こし\n{transcript}\n\n# 命令\n1. この会議の要約を3〜5個の箇条書きで作成してください。\n2. この会議で発生したToDo（アクションアイテム）をリストアップしてください。\n\nあなたの回答は、必ず以下のjson形式で返してください。\n{{\"summary\": [\"要約1\", \"要約2\"], \"todos\": [\"ToDo1\", \"ToDo2\"]}}")])
+    if model_name.startswith("gpt"): chain = prompt | llm.bind(response_format={"type": "json_object"})
+    else: chain = prompt | llm
     return chain.invoke({"transcript": transcript_text})
 
-def _review_draft(llm, model_name: str, transcript_text: str, draft: dict):
+def _review_draft(llm, model_name, transcript_text, draft):
     print(f"LLM [Step 2/4]: Reviewing draft with {model_name}...")
-    draft_summary = "\n".join(f"- {item}" for item in draft.get("summary", []))
-    draft_todos = "\n".join(f"- {item}" for item in draft.get("todos", []))
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "あなたは、AIアシスタントが作成した会議の要約とToDoリストを評価する、優秀な編集長です。"),
-        ("user", """以下の「元の文字起こし」と、それに基づいてAIが作成した「ドラフト」をレビューしてください。
-# 元の文字起こし
-{transcript}
-# ドラフト
-## 要約
-{summary}
-## ToDoリスト
-{todos}
-# 命令
-以下の観点に基づいて、このドラフトの良い点と改善点を具体的に指摘してください。
-- 要約の忠実性: 要約は、元の文字起こしの内容と一致していますか？重要な情報が欠けていませんか？
-- ToDoの網羅性: すべてのタスクが正しく抽出されていますか？担当者や期限が明確ですか？
-- 全体的な明確さ: 表現は分かりやすいですか？
-あなたのレビューコメントを簡潔に記述してください。""")
-    ])
+    prompt = ChatPromptTemplate.from_messages([("system", "あなたは、AIアシスタントが作成した会議の要約とToDoリストを評価する、優秀な編集長です。"),("user", "以下の「元の文字起こし」と、それに基づいてAIが作成した「ドラフト」をレビューしてください。\n\n# 元の文字起こし\n{transcript}\n\n# ドラフト\n## 要約\n{summary}\n## ToDoリスト\n{todos}\n\n# 命令\n以下の観点に基づいて、このドラフトの良い点と改善点を具体的に指摘してください。\n- 要約の忠実性\n- ToDoの網羅性\n- 全体的な明確さ\n\nあなたのレビューコメントを簡潔に記述してください。")])
     chain = prompt | llm
-    return chain.invoke({"transcript": transcript_text, "summary": draft_summary, "todos": draft_todos})
+    return chain.invoke({"transcript": transcript_text, "summary": "\n".join(f"- {item}" for item in draft.get("summary", [])), "todos": "\n".join(f"- {item}" for item in draft.get("todos", []))})
 
-def _revise_draft(llm, model_name: str, transcript_text: str, draft: dict, review_feedback: str):
+def _revise_draft(llm, model_name, transcript_text, draft, review_feedback):
     print(f"LLM [Step 3/4]: Revising draft with {model_name}...")
-    draft_summary = "\n".join(f"- {item}" for item in draft.get("summary", []))
-    draft_todos = "\n".join(f"- {item}" for item in draft.get("todos", []))
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "あなたは、編集長からのレビューフィードバックを元に、会議の要約とToDoリストを改善するアシスタントです。"),
-        ("user", """以下の「元の文字起こし」、「最初のドラフト」、そして「編集長からのレビュー」をすべて考慮して、最終的な成果物を作成してください。
-# 元の文字起こし
-{transcript}
-# 最初のドラフト
-## 要約
-{summary}
-## ToDoリスト
-{todos}
-# 編集長からのレビュー
-{feedback}
-# 命令
-レビューでの指摘事項を反映し、**最高の品質**の要約とToDoリストを生成してください。
-あなたの回答は、必ず以下のjson形式で返してください。
-{{"summary": ["改善された要約1"], "todos": ["改善されたToDo1"]}}""")
-    ])
-    if model_name.startswith("gpt"):
-        chain = prompt | llm.bind(response_format={"type": "json_object"})
-    else:
-        chain = prompt | llm
-    return chain.invoke({"transcript": transcript_text, "summary": draft_summary, "todos": draft_todos, "feedback": review_feedback})
+    prompt = ChatPromptTemplate.from_messages([("system", "あなたは、編集長からのレビューフィードバックを元に、会議の要約とToDoリストを改善するアシスタントです。"),("user", "以下の「元の文字起こし」、「最初のドラフト」、そして「編集長からのレビュー」をすべて考慮して、最終的な成果物を作成してください。\n\n# 元の文字起こし\n{transcript}\n\n# 最初のドラフト\n## 要約\n{summary}\n## ToDoリスト\n{todos}\n\n# 編集長からのレビュー\n{feedback}\n\n# 命令\nレビューでの指摘事項を反映し、**最高の品質**の要約とToDoリストを生成してください。\nあなたの回答は、必ず以下のjson形式で返してください。\n{{\"summary\": [\"改善された要約1\"], \"todos\": [\"改善されたToDo1\"]}}")])
+    if model_name.startswith("gpt"): chain = prompt | llm.bind(response_format={"type": "json_object"})
+    else: chain = prompt | llm
+    return chain.invoke({"transcript": transcript_text, "summary": "\n".join(f"- {item}" for item in draft.get("summary", [])), "todos": "\n".join(f"- {item}" for item in draft.get("todos", [])), "feedback": review_feedback})
 
-def _evaluate_reliability(llm, model_name: str, transcript_text: str, final_summary: str):
+def _evaluate_reliability(llm, model_name, transcript_text, final_summary):
     print(f"LLM [Step 4/4]: Evaluating reliability with {model_name}...")
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "あなたは、AIが生成した要約を、元の文字起こしと比較して評価する厳格な評価者です。"),
-        ("user", """以下の「元の文字起こし」と「AIによる要約」を比較してください。
-# 元の文字起こし
-{transcript}
-# AIによる要約
-{summary}
-# 命令
-以下の3つの観点で、要約の品質を0.0から1.0の範囲で採点してください。
-1. **忠実性 (Faithfulness):** 要約に、元の文字起こしにはない情報が含まれていませんか？
-2. **網羅性 (Comprehensiveness):** 要約は、元の文字起こしの主要なトピックをすべてカバーしていますか？
-3. **簡潔性 (Conciseness):** 要約は、冗長な表現がなく、簡潔にまとまっていますか？
-あなたの評価を、以下のjson形式で返してください。
-{{"faithfulness_score": 0.9, "comprehensiveness_score": 0.8, "conciseness_score": 1.0, "justification": "要約は概ね正確だが、Q4予算に関する言及が抜けている。"}}""")
-    ])
-    if model_name.startswith("gpt"):
-        chain = prompt | llm.bind(response_format={"type": "json_object"})
-    else:
-        chain = prompt | llm
+    prompt = ChatPromptTemplate.from_messages([("system", "あなたは、AIが生成した要約を、元の文字起こしと比較して評価する厳格な評価者です。"),("user", "以下の「元の文字起こし」と「AIによる要約」を比較してください。\n# 元の文字起こし\n{transcript}\n# AIによる要約\n{summary}\n# 命令\n以下の3つの観点で、要約の品質を0.0から1.0の範囲で採点してください。\n1. **忠実性 (Faithfulness)**\n2. **網羅性 (Comprehensiveness)**\n3. **簡潔性 (Conciseness)**\nあなたの評価を、以下のjson形式で返してください。\n{{\"faithfulness_score\": 0.9, \"comprehensiveness_score\": 0.8, \"conciseness_score\": 1.0, \"justification\": \"要約は概ね正確だが、Q4予算に関する言及が抜けている。\"}}")])
+    if model_name.startswith("gpt"): chain = prompt | llm.bind(response_format={"type": "json_object"})
+    else: chain = prompt | llm
     return chain.invoke({"transcript": transcript_text, "summary": final_summary})
 
 def run_self_improvement_pipeline(model_name: str, transcript_text: str):
     try:
         llm = get_llm(model_name)
         total_token_usage = {"input_tokens": 0, "output_tokens": 0}
-
+        
         response1 = _generate_draft(llm, model_name, transcript_text)
-        usage1 = _extract_token_usage(response1)
-        total_token_usage["input_tokens"] += usage1["input_tokens"]; total_token_usage["output_tokens"] += usage1["output_tokens"]
+        usage = _extract_token_usage(response1); total_token_usage["input_tokens"] += usage["input_tokens"]; total_token_usage["output_tokens"] += usage["output_tokens"]
         draft_result = json.loads(response1.content)
 
         response2 = _review_draft(llm, model_name, transcript_text, draft_result)
-        usage2 = _extract_token_usage(response2)
-        total_token_usage["input_tokens"] += usage2["input_tokens"]; total_token_usage["output_tokens"] += usage2["output_tokens"]
+        usage = _extract_token_usage(response2); total_token_usage["input_tokens"] += usage["input_tokens"]; total_token_usage["output_tokens"] += usage["output_tokens"]
         review_feedback = response2.content
         
         response3 = _revise_draft(llm, model_name, transcript_text, draft_result, review_feedback)
-        usage3 = _extract_token_usage(response3)
-        total_token_usage["input_tokens"] += usage3["input_tokens"]; total_token_usage["output_tokens"] += usage3["output_tokens"]
+        usage = _extract_token_usage(response3); total_token_usage["input_tokens"] += usage["input_tokens"]; total_token_usage["output_tokens"] += usage["output_tokens"]
         final_result = json.loads(response3.content)
 
         summary = "\n".join(f"- {item}" for item in final_result.get("summary", []))
         todos = final_result.get("todos", [])
         
         response4 = _evaluate_reliability(llm, model_name, transcript_text, summary)
-        usage4 = _extract_token_usage(response4)
-        total_token_usage["input_tokens"] += usage4["input_tokens"]; total_token_usage["output_tokens"] += usage4["output_tokens"]
+        usage = _extract_token_usage(response4); total_token_usage["input_tokens"] += usage["input_tokens"]; total_token_usage["output_tokens"] += usage["output_tokens"]
         evaluation = json.loads(response4.content)
         
         scores = [evaluation.get("faithfulness_score", 0), evaluation.get("comprehensiveness_score", 0), evaluation.get("conciseness_score", 0)]
@@ -209,25 +130,10 @@ def run_rag_benchmark_pipeline(qa_dataset: list, context_file, model_name: str):
     prompt = ChatPromptTemplate.from_template(template)
     llm = get_llm(model_name)
     eval_llm = get_llm("gpt-4o-mini") 
-    def format_docs(docs): return "\n".join(doc.page_content for doc in docs)
+    def format_docs(docs): return "\n\n".join(doc.page_content for doc in docs)
     rag_chain = ({"context": retriever | format_docs, "question": RunnablePassthrough()} | prompt | llm)
     
-    evaluation_prompt = ChatPromptTemplate.from_messages([
-        ("system", "あなたは、AIの回答を評価する厳格な評価者です。"),
-        ("user", """以下の「質問」、「AIが参照した文脈」、「AIの回答」を比較して、評価スコアを付けてください。
-# 質問
-{question}
-# AIが参照した文脈
-{context}
-# AIの回答
-{prediction}
-# 命令
-以下の2つの観点で、AIの回答の品質を0.0から1.0の範囲で採点してください。
-1. **忠実性 (faithfulness):** AIの回答は、AIが参照した文脈の内容に完全に忠実ですか？
-2. **関連性 (relevance):** AIの回答は、元の質問に的確に答えていますか？
-あなたの評価を、以下のjson形式で返してください。
-{{"faithfulness_score": 0.9, "relevance_score": 1.0}}""")
-    ])
+    evaluation_prompt = ChatPromptTemplate.from_messages([("system", "あなたは、AIの回答を評価する厳格な評価者です。"),("user", "以下の「質問」、「AIが参照した文脈」、「AIの回答」を比較して、評価スコアを付けてください。\n# 質問\n{question}\n# AIが参照した文脈\n{context}\n# AIの回答\n{prediction}\n# 命令\n以下の2つの観点で、AIの回答の品質を0.0から1.0の範囲で採点してください。\n1. **忠実性 (faithfulness)**\n2. **関連性 (relevance)**\nあなたの評価を、以下のjson形式で返してください。\n{{\"faithfulness_score\": 0.9, \"relevance_score\": 1.0}}")])
     evaluator_chain = evaluation_prompt | eval_llm.bind(response_format={"type": "json_object"})
     results, total_token_usage = [], {"input_tokens": 0, "output_tokens": 0}
     print(f"--- RAG: Running benchmark for {len(qa_dataset)} questions ---")
@@ -239,7 +145,6 @@ def run_rag_benchmark_pipeline(qa_dataset: list, context_file, model_name: str):
         retrieved_docs_result = retriever.invoke(question)
         rag_chain_response = rag_chain.invoke(question)
         generated_answer = rag_chain_response.content
-        
         usage = _extract_token_usage(rag_chain_response)
         total_token_usage["input_tokens"] += usage["input_tokens"]
         total_token_usage["output_tokens"] += usage["output_tokens"]

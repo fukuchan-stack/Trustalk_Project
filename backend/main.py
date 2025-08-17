@@ -1,3 +1,5 @@
+# backend/main.py
+
 import os
 import uuid
 import json
@@ -21,7 +23,7 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 if not HF_TOKEN:
     raise ValueError("環境変数 HF_TOKEN が設定されていません。")
 
-# --- AIモデルのグローバル変数 (遅延読み込みのためNoneで初期化) ---
+# --- AIモデルのグローバル変数 (遅延読み込み) ---
 device = "cuda" if torch.cuda.is_available() else "cpu"
 whisper_model = None
 diarization_pipeline = None
@@ -46,15 +48,16 @@ def load_pyannote_pipeline():
             print("Pyannote: Diarization pipeline loaded successfully.")
 
 # --- FastAPIアプリケーションのセットアップ ---
-app = FastAPI(title="Trustalk API", version="2.3.0")
+app = FastAPI(title="Trustalk API", version="2.3.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 HISTORY_DIR = "history"
 os.makedirs(HISTORY_DIR, exist_ok=True)
 
 # --- ヘルパー関数 ---
 def merge_results(diarization, transcription):
+    # (この関数は変更ありません)
     if not diarization: return "話者分離パイプラインが利用できません。", transcription.get("text", "")
-    word_speakers = []
+    word_speakers, current_speaker, current_speech = [], None, ""
     for segment in transcription.get("segments", []):
         for word in segment.get("words", []):
             speaker_label = "UNKNOWN"
@@ -66,9 +69,7 @@ def merge_results(diarization, transcription):
             except (IndexError, KeyError): speaker_label = "UNKNOWN"
             word_speakers.append({'word': word.get('text', ''), 'speaker': speaker_label})
     if not word_speakers: return "発言が見つかりませんでした。", transcription.get("text", "")
-    full_transcript_with_speakers = ""
-    current_speaker = word_speakers[0]['speaker']
-    current_speech = ""
+    full_transcript_with_speakers, current_speaker, current_speech = "", word_speakers[0]['speaker'], ""
     for item in word_speakers:
         word, speaker = item['word'], item['speaker']
         if speaker != current_speaker:
@@ -84,14 +85,12 @@ def read_root(): return {"status": "ok", "message": "Welcome to Trustalk API!"}
 
 @app.post("/analyze", summary="音声ファイルの分析")
 async def analyze_audio(file: UploadFile = File(...), model_name: str = Form("gpt-4o-mini")):
-    load_whisper_model()
-    load_pyannote_pipeline()
+    load_whisper_model(); load_pyannote_pipeline()
     original_filename, temp_file_path = file.filename, f"/tmp/{uuid.uuid4()}_{file.filename}"
     wav_file_path = f"{os.path.splitext(temp_file_path)[0]}.wav"
     try:
         with open(temp_file_path, "wb") as buffer: contents = await file.read(); buffer.write(contents)
-        command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]; subprocess.run(command, check=True, capture_output=True, text=True)
         audio = whisper.load_audio(wav_file_path)
         audio_duration_seconds = len(audio) / whisper.audio.SAMPLE_RATE
         transcription_result = whisper.transcribe(whisper_model, audio, language="ja", detect_disfluencies=True)
@@ -109,8 +108,7 @@ async def analyze_audio(file: UploadFile = File(...), model_name: str = Form("gp
         with open(history_file_path, "w", encoding="utf-8") as f: json.dump(result, f, ensure_ascii=False, indent=4)
         return JSONResponse(content=result)
     except Exception as e:
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"分析中に予期せぬエラーが発生しました: {str(e)}")
+        print(traceback.format_exc()); raise HTTPException(status_code=500, detail=f"分析中に予期せぬエラー: {str(e)}")
     finally:
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
         if os.path.exists(wav_file_path): os.remove(wav_file_path)
@@ -124,8 +122,7 @@ async def benchmark_summary_audio(file: UploadFile = File(...), models_to_benchm
     wav_file_path = f"{os.path.splitext(temp_file_path)[0]}.wav"
     try:
         with open(temp_file_path, "wb") as buffer: contents = await file.read(); buffer.write(contents)
-        command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]; subprocess.run(command, check=True, capture_output=True, text=True)
         audio = whisper.load_audio(wav_file_path)
         audio_duration_seconds = len(audio) / whisper.audio.SAMPLE_RATE
         transcription_result = whisper.transcribe(whisper_model, audio, language="ja", detect_disfluencies=True)
@@ -137,8 +134,7 @@ async def benchmark_summary_audio(file: UploadFile = File(...), models_to_benchm
             result["cost"] = calculate_cost_in_jpy(model_name=result["model_name"], total_input_tokens=result["token_usage"].get("input_tokens", 0), total_output_tokens=result["token_usage"].get("output_tokens", 0), audio_duration_seconds=audio_duration_seconds)
         return JSONResponse(content=benchmark_results)
     except Exception as e:
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"ベンチマーク中に予期せぬエラーが発生しました: {str(e)}")
+        print(traceback.format_exc()); raise HTTPException(status_code=500, detail=f"ベンチマーク中に予期せぬエラー: {str(e)}")
     finally:
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
         if os.path.exists(wav_file_path): os.remove(wav_file_path)
