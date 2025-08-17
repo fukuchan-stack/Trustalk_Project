@@ -1,5 +1,3 @@
-# backend/main.py
-
 import os
 import uuid
 import json
@@ -48,16 +46,15 @@ def load_pyannote_pipeline():
             print("Pyannote: Diarization pipeline loaded successfully.")
 
 # --- FastAPIアプリケーションのセットアップ ---
-app = FastAPI(title="Trustalk API", version="2.3.1")
+app = FastAPI(title="Trustalk API", version="2.3.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 HISTORY_DIR = "history"
 os.makedirs(HISTORY_DIR, exist_ok=True)
 
 # --- ヘルパー関数 ---
 def merge_results(diarization, transcription):
-    # (この関数は変更ありません)
     if not diarization: return "話者分離パイプラインが利用できません。", transcription.get("text", "")
-    word_speakers, current_speaker, current_speech = [], None, ""
+    word_speakers = []
     for segment in transcription.get("segments", []):
         for word in segment.get("words", []):
             speaker_label = "UNKNOWN"
@@ -69,7 +66,9 @@ def merge_results(diarization, transcription):
             except (IndexError, KeyError): speaker_label = "UNKNOWN"
             word_speakers.append({'word': word.get('text', ''), 'speaker': speaker_label})
     if not word_speakers: return "発言が見つかりませんでした。", transcription.get("text", "")
-    full_transcript_with_speakers, current_speaker, current_speech = "", word_speakers[0]['speaker'], ""
+    full_transcript_with_speakers = ""
+    current_speaker = word_speakers[0]['speaker']
+    current_speech = ""
     for item in word_speakers:
         word, speaker = item['word'], item['speaker']
         if speaker != current_speaker:
@@ -140,19 +139,30 @@ async def benchmark_summary_audio(file: UploadFile = File(...), models_to_benchm
         if os.path.exists(wav_file_path): os.remove(wav_file_path)
 
 @app.post("/benchmark-rag", summary="CSVデータセットでRAG性能を評価する")
-async def benchmark_rag(qa_file: UploadFile = File(...), context_file: UploadFile = File(...), model_name: str = Form(...), selected_indices_json: str = Form(...)):
+async def benchmark_rag(
+    qa_file: UploadFile = File(...),
+    context_file: UploadFile = File(...),
+    model_name: str = Form(...),
+    selected_indices_json: str = Form(...),
+    advanced_rag_options_json: str = Form(...)
+):
     try:
         selected_indices = json.loads(selected_indices_json)
+        advanced_options = json.loads(advanced_rag_options_json)
+
         all_qa_records = _parse_csv_to_records(qa_file.file, required_columns=["question", "ground_truth"])
         selected_qa_records = [all_qa_records[i] for i in selected_indices]
         if not selected_qa_records:
             raise HTTPException(status_code=400, detail="評価対象の質問が選択されていません。")
+        
         results_data = run_rag_benchmark_pipeline(
             qa_dataset=selected_qa_records,
             context_file=context_file.file,
-            model_name=model_name
+            model_name=model_name,
+            advanced_options=advanced_options
         )
-        token_usage = results_data.get("token_usage", {"input_tokens": 0, "output_tokens": 0})
+        
+        token_usage = results_data.get("token_usage", {})
         calculated_cost = calculate_cost_in_jpy(
             model_name=model_name,
             total_input_tokens=token_usage.get("input_tokens", 0),
