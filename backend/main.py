@@ -19,6 +19,11 @@ from ai_pipelines import run_self_improvement_pipeline, run_benchmark_pipeline
 from rag_pipelines import run_rag_benchmark_pipeline, _parse_csv_to_records
 from cost_calculator import calculate_cost_in_jpy
 from io import BytesIO
+# 追加したインポート
+from knowledge_base_manager import KnowledgeBaseManager
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from models import get_llm
 
 # --- 環境変数 ---
 HF_TOKEN = os.getenv("HF_TOKEN")
@@ -56,6 +61,15 @@ HISTORY_DIR = "history"
 RAG_HISTORY_DIR = "rag_history"
 os.makedirs(HISTORY_DIR, exist_ok=True)
 os.makedirs(RAG_HISTORY_DIR, exist_ok=True)
+
+# --- ナレッジベースとLLMの準備 ---
+# ナレッジベースマネージャーのインスタンスを作成
+# API全体で共有するため、グローバルスコープで一度だけ初期化します。
+kb_manager = KnowledgeBaseManager()
+
+# 回答生成に使用するLLMを初期化
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
 
 # --- ヘルパー関数 ---
 def merge_results(diarization, transcription):
@@ -113,6 +127,62 @@ async def analyze_audio(file: UploadFile = File(...), model_name: str = Form("gp
     finally:
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
         if os.path.exists(wav_file_path): os.remove(wav_file_path)
+
+# --- Pydanticモデル (新規API用) ---
+class AskRequest(BaseModel):
+    """ナレッジベースへの質問リクエストのモデル"""
+    question: str
+
+class AskResponse(BaseModel):
+    """ナレッジベースからの回答レスポンスのモデル"""
+    answer: str
+
+# --- 新規APIエンドポイント ---
+@app.post("/api/ask-knowledge-base", response_model=AskResponse, tags=["Knowledge Base"])
+async def ask_knowledge_base(request: AskRequest):
+    """
+    ナレッジベースに対して質問を投げ、LLMによって生成された回答を返す。
+    """
+    try:
+        # === Retrieve (検索) ===
+        # ナレッジベースから質問に関連する情報を検索
+        context_docs = kb_manager.search_knowledge_base(request.question)
+        
+        print("--- 取得したコンテキスト情報 ---")
+        print(context_docs)
+        print("-----------------------------")
+
+
+        # 検索結果を一つのテキストに結合
+        context_text = "\n\n---\n\n".join(context_docs)
+
+        # === Augment (補強) & Generate (生成) ===
+        # プロンプトテンプレートを定義
+        prompt_template = ChatPromptTemplate.from_template(
+            """あなたはTrustalkプロジェクトの優秀なAIアシスタントです。
+過去のミーティング議事録から検索された以下の「コンテキスト情報」のみに基づいて、ユーザーの「質問」に日本語で回答してください。
+コンテキスト情報に答えがない場合は、「ナレッジベースには関連する情報が見つかりませんでした。」と回答してください。
+
+# コンテキスト情報
+{context}
+
+# 質問
+{question}
+"""
+        )
+        
+        # プロンプトを組み立て
+        prompt = prompt_template.format(context=context_text, question=request.question)
+        
+        # LLMにプロンプトを渡して回答を生成
+        response_message = llm.invoke(prompt)
+        answer = response_message.content
+        
+        return AskResponse(answer=answer)
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"AIアシスタント処理中にエラーが発生しました: {str(e)}")
+
 
 @app.post("/benchmark-summary", summary="単一の音声ファイルで、複数のモデルの性能を比較する")
 async def benchmark_summary_audio(file: UploadFile = File(...), models_to_benchmark: str = Form(...)):

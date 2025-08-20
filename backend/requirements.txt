@@ -25,3 +25,5 @@ faiss-cpu
 langchain-huggingface
 chardet
 rank_bm25
+chromadb
+pysqlite3-binary
