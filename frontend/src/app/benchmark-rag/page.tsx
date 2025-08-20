@@ -158,6 +158,7 @@ export default function BenchmarkRagPage() {
           <Link href="/" className="px-4 py-2 text-lg font-semibold text-gray-500 hover:text-blue-600">個別分析</Link>
           <Link href="/benchmark-summary" className="px-4 py-2 text-lg font-semibold text-gray-500 hover:text-blue-600">モデル性能比較</Link>
           <Link href="/benchmark-rag" className="px-4 py-2 text-lg font-semibold text-blue-600 border-b-2 border-blue-600">RAG評価</Link>
+          <Link href="/knowledge" className="px-4 py-2 text-lg font-semibold text-gray-500 hover:text-blue-600">ナレッジ検索</Link>
         </nav>
         <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 mb-12">
           <h2 className="text-2xl font-bold text-gray-800 mb-1">RAG性能評価ベンチマーク</h2>
