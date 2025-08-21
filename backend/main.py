@@ -339,3 +339,51 @@ async def delete_rag_history(request: DeleteHistoryRequest):
         else: errors.append(f"ファイルが見つかりません: {file_id}")
     if errors: raise HTTPException(status_code=500, detail={"message": "一部削除失敗。", "errors": errors})
     return {"message": f"{deleted_count}件のRAG履歴を削除しました。", "deleted_count": deleted_count}
+
+# ...（既存のコードの下に追記）...
+
+# --- Pydanticモデル (ダッシュボードAPI用) ---
+class SpeakerContribution(BaseModel):
+    name: str
+    value: int # 発言文字数
+
+class DashboardData(BaseModel):
+    speaker_contributions: list[SpeakerContribution]
+
+# --- ダッシュボード用APIエンドポイント ---
+@app.get("/api/dashboard/{analysis_id}", response_model=DashboardData, tags=["Dashboard"])
+async def get_dashboard_data(analysis_id: str):
+    """
+    特定の分析結果IDに基づいて、ダッシュボード用のデータを生成して返す。
+    """
+    history_file_path = os.path.join(HISTORY_DIR, f"{analysis_id}.json")
+    if not os.path.exists(history_file_path):
+        raise HTTPException(status_code=404, detail="分析履歴が見つかりません。")
+
+    try:
+        with open(history_file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # --- 話者ごとの発言量を計算 ---
+        speakers_text = data.get("speakers", "")
+
+        # 正規表現を使って「**話者名**: 発言内容」のパターンを全て見つけ出す
+        # re.findallは、[('話者A', 'こんにちは'), ('話者B', 'こんばんは')] のようなリストを返します
+        matches = re.findall(r"\*\*(.*?)\*\*:\s*(.*?)(?=\n\n\*\*|$)", speakers_text, re.DOTALL)
+
+        contribution_data = {}
+        for speaker, speech in matches:
+            # 発言内容の文字数をカウントして、話者ごとに加算していく
+            speech_length = len(speech.strip())
+            contribution_data[speaker] = contribution_data.get(speaker, 0) + speech_length
+
+        # Rechartsで使いやすい形式に変換
+        speaker_contributions = [
+            {"name": name, "value": value} for name, value in contribution_data.items()
+        ]
+
+        return DashboardData(speaker_contributions=speaker_contributions)
+
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"ダッシュボードデータの生成中にエラーが発生しました: {str(e)}")

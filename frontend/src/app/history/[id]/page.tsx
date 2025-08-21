@@ -1,17 +1,23 @@
-// frontend/src/app/history/[id]/page.tsx
-
 'use client';
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { AnalysisResult } from '@/types/analysis';
+import { SpeakerPieChart } from '@/components/charts/SpeakerPieChart'; // ★ 1. 円グラフコンポーネントをインポート
+
+// ★ 2. ダッシュボード用のデータ型を定義
+interface SpeakerContributionData {
+  name: string;
+  value: number;
+}
 
 export default function HistoryDetailPage() {
   const params = useParams();
   const id = params.id as string;
 
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [dashboardData, setDashboardData] = useState<SpeakerContributionData[] | null>(null); // ★ 2. ダッシュボード用のstateを追加
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,24 +25,41 @@ export default function HistoryDetailPage() {
 
   useEffect(() => {
     if (id && apiUrl) {
-      const fetchLogDetail = async () => {
+      const fetchDetails = async () => {
         try {
           setLoading(true);
           setError(null);
-          const res = await fetch(`${apiUrl}/history/${id}`);
-          if (!res.ok) {
-            const errorData = await res.json();
+          
+          // ★ 3. ２つのAPIを同時に呼び出すように変更
+          const [resultRes, dashboardRes] = await Promise.all([
+            fetch(`${apiUrl}/history/${id}`),
+            fetch(`${apiUrl}/api/dashboard/${id}`)
+          ]);
+
+          if (!resultRes.ok) {
+            const errorData = await resultRes.json();
             throw new Error(errorData.detail || '分析結果の取得に失敗しました。');
           }
-          const data: AnalysisResult = await res.json();
-          setResult(data);
+          if (!dashboardRes.ok) {
+            // ダッシュボードのデータ取得失敗は、エラーとせずコンソールに出力するだけにする
+            console.error("ダッシュボードデータの取得に失敗しました。");
+          }
+
+          const resultData: AnalysisResult = await resultRes.json();
+          setResult(resultData);
+
+          if (dashboardRes.ok) {
+            const dashboardJson = await dashboardRes.json();
+            setDashboardData(dashboardJson.speaker_contributions);
+          }
+
         } catch (err: any) {
           setError(err.message || '不明なエラーが発生しました。');
         } finally {
           setLoading(false);
         }
       };
-      fetchLogDetail();
+      fetchDetails();
     } else if (!apiUrl) {
         setError('APIのURLが設定されていません。');
         setLoading(false);
@@ -96,6 +119,19 @@ export default function HistoryDetailPage() {
                 <p className="text-gray-600 italic">"{result.reliability.justification}"</p>
               </div>
             </div>
+          </div>
+
+          {/* ★ 4. ダッシュボード表示エリアを追加 */}
+          <div className="bg-white shadow-md rounded-lg p-6">
+            <h2 className="text-2xl font-semibold mb-3">分析ダッシュボード</h2>
+            {dashboardData ? (
+                <div className='w-full h-72'>
+                    <h3 className="font-semibold text-gray-800 text-center mb-2">話者ごとの発言量</h3>
+                    <SpeakerPieChart data={dashboardData} />
+                </div>
+            ) : (
+                <p className="text-center text-gray-500">ダッシュボードデータを読み込み中...</p>
+            )}
           </div>
 
           <div className="bg-white shadow-md rounded-lg p-6">
