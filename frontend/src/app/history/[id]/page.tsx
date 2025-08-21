@@ -4,22 +4,28 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { AnalysisResult } from '@/types/analysis';
-import { SpeakerPieChart } from '@/components/charts/SpeakerPieChart'; // ★ 1. 円グラフコンポーネントをインポート
+import { SpeakerPieChart } from '@/components/charts/SpeakerPieChart';
+// ★ 1. ボタン用のアイコンをインポート
+import { Send, Check, Loader2 } from 'lucide-react';
 
-// ★ 2. ダッシュボード用のデータ型を定義
 interface SpeakerContributionData {
   name: string;
   value: number;
 }
+
+// ★ 2. 各ToDoのエクスポート状態を管理するための型
+type ExportStatus = 'idle' | 'loading' | 'success' | 'error';
 
 export default function HistoryDetailPage() {
   const params = useParams();
   const id = params.id as string;
 
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [dashboardData, setDashboardData] = useState<SpeakerContributionData[] | null>(null); // ★ 2. ダッシュボード用のstateを追加
+  const [dashboardData, setDashboardData] = useState<SpeakerContributionData[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // ★ 2. 各ToDoのエクスポート状態を管理するstateを追加 (キーはToDoのインデックス番号)
+  const [exportStatus, setExportStatus] = useState<Record<number, ExportStatus>>({});
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
@@ -30,7 +36,6 @@ export default function HistoryDetailPage() {
           setLoading(true);
           setError(null);
           
-          // ★ 3. ２つのAPIを同時に呼び出すように変更
           const [resultRes, dashboardRes] = await Promise.all([
             fetch(`${apiUrl}/history/${id}`),
             fetch(`${apiUrl}/api/dashboard/${id}`)
@@ -41,7 +46,6 @@ export default function HistoryDetailPage() {
             throw new Error(errorData.detail || '分析結果の取得に失敗しました。');
           }
           if (!dashboardRes.ok) {
-            // ダッシュボードのデータ取得失敗は、エラーとせずコンソールに出力するだけにする
             console.error("ダッシュボードデータの取得に失敗しました。");
           }
 
@@ -66,6 +70,42 @@ export default function HistoryDetailPage() {
     }
   }, [id, apiUrl]);
 
+  // ★ 3. Asana連携ロジックを実装
+  const handleExportToAsana = async (todoText: string, index: number) => {
+    if (!apiUrl) {
+      alert('エラー: APIのURLが設定されていません。');
+      return;
+    }
+    
+    // 特定のToDoのステータスを'loading'に更新
+    setExportStatus(prev => ({ ...prev, [index]: 'loading' }));
+    
+    try {
+      const response = await fetch(`${apiUrl}/api/export/asana`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_name: todoText, notes: `"${result?.originalFilename}"の議事録から作成されました。` }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Asanaへのエクスポートに失敗しました。');
+      }
+
+      const data = await response.json();
+      setExportStatus(prev => ({ ...prev, [index]: 'success' }));
+      // 成功したら、新しいタブでAsanaタスクを開く
+      window.open(data.task_url, '_blank');
+
+    } catch (err: any) {
+      setExportStatus(prev => ({ ...prev, [index]: 'error' }));
+      alert(`エラー: ${err.message}`);
+      // 一定時間後にステータスを元に戻す
+      setTimeout(() => setExportStatus(prev => ({ ...prev, [index]: 'idle' })), 3000);
+    }
+  };
+
+
   if (loading) {
     return ( <div className="flex items-center justify-center min-h-screen"><div className="text-xl">読み込み中...</div></div> );
   }
@@ -77,10 +117,6 @@ export default function HistoryDetailPage() {
   if (!result) {
     return ( <div className="p-8 max-w-4xl mx-auto"><h1 className="text-2xl font-bold mb-4">分析結果が見つかりません</h1><Link href="/" className="text-blue-600 hover:underline mt-4 inline-block">&larr; ホームに戻る</Link></div> );
   }
-
-  const todosText = result.todos && result.todos.length > 0
-    ? result.todos.map(todo => `- ${todo}`).join('\n')
-    : 'なし';
     
   const reliabilityScore = Math.round(result.reliability.score * 100);
   const scoreColor = reliabilityScore > 80 ? 'text-green-600' : reliabilityScore > 60 ? 'text-yellow-600' : 'text-red-600';
@@ -121,7 +157,6 @@ export default function HistoryDetailPage() {
             </div>
           </div>
 
-          {/* ★ 4. ダッシュボード表示エリアを追加 */}
           <div className="bg-white shadow-md rounded-lg p-6">
             <h2 className="text-2xl font-semibold mb-3">分析ダッシュボード</h2>
             {dashboardData ? (
@@ -139,9 +174,38 @@ export default function HistoryDetailPage() {
             <div className="prose max-w-none whitespace-pre-wrap">{result.summary}</div>
           </div>
 
+          {/* ★ 4. ToDoリストのUIを変更 */}
           <div className="bg-white shadow-md rounded-lg p-6">
             <h2 className="text-2xl font-semibold mb-3">アクションアイテム (ToDo)</h2>
-            <div className="prose max-w-none whitespace-pre-wrap">{todosText}</div>
+            {result.todos && result.todos.length > 0 ? (
+                <ul className="space-y-4">
+                  {result.todos.map((todo, index) => {
+                    const status = exportStatus[index] || 'idle';
+                    return (
+                      <li key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <span className="text-gray-800 flex-grow">{todo}</span>
+                        <button 
+                          onClick={() => handleExportToAsana(todo, index)}
+                          disabled={status === 'loading' || status === 'success'}
+                          className={`ml-4 px-3 py-1 text-xs font-semibold text-white rounded-full flex items-center transition-all duration-300
+                            ${status === 'idle' ? 'bg-blue-500 hover:bg-blue-600' : ''}
+                            ${status === 'loading' ? 'bg-gray-400 cursor-not-allowed' : ''}
+                            ${status === 'success' ? 'bg-green-500' : ''}
+                            ${status === 'error' ? 'bg-red-500 hover:bg-red-600' : ''}
+                          `}
+                        >
+                          {status === 'idle' && <><Send className="mr-1 h-3 w-3" /> Asanaへ</>}
+                          {status === 'loading' && <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> 送信中</>}
+                          {status === 'success' && <><Check className="mr-1 h-3 w-3" /> 送信済み</>}
+                          {status === 'error' && <>再試行</>}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="text-gray-500">なし</p>
+            )}
           </div>
 
           <div className="bg-white shadow-md rounded-lg p-6">
