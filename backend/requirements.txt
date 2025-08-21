@@ -27,3 +27,4 @@ chardet
 rank_bm25
 chromadb
 pysqlite3-binary
+asana

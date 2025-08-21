@@ -19,7 +19,10 @@ from ai_pipelines import run_self_improvement_pipeline, run_benchmark_pipeline
 from rag_pipelines import run_rag_benchmark_pipeline, _parse_csv_to_records
 from cost_calculator import calculate_cost_in_jpy
 from io import BytesIO
-# 追加したインポート
+
+# --- 追加機能のためのインポート ---
+import asana
+from asana.rest import ApiException
 from knowledge_base_manager import KnowledgeBaseManager
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -55,7 +58,7 @@ def load_pyannote_pipeline():
             print("Pyannote: Diarization pipeline loaded successfully.")
 
 # --- FastAPIアプリケーションのセットアップ ---
-app = FastAPI(title="Trustalk API", version="2.5.0")
+app = FastAPI(title="Trustalk API", version="3.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 HISTORY_DIR = "history"
 RAG_HISTORY_DIR = "rag_history"
@@ -63,11 +66,7 @@ os.makedirs(HISTORY_DIR, exist_ok=True)
 os.makedirs(RAG_HISTORY_DIR, exist_ok=True)
 
 # --- ナレッジベースとLLMの準備 ---
-# ナレッジベースマネージャーのインスタンスを作成
-# API全体で共有するため、グローバルスコープで一度だけ初期化します。
 kb_manager = KnowledgeBaseManager()
-
-# 回答生成に使用するLLMを初期化
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 
@@ -94,6 +93,32 @@ def merge_results(diarization, transcription):
         current_speech += word + " "; current_speaker = speaker
     if current_speech: full_transcript_with_speakers += f"**{current_speaker}**: {current_speech.strip()}\n"
     return full_transcript_with_speakers.strip(), transcription.get("text", "")
+
+# --- Pydanticモデル定義 ---
+class DeleteHistoryRequest(BaseModel):
+    ids: List[str]
+
+class AskRequest(BaseModel):
+    question: str
+
+class AskResponse(BaseModel):
+    answer: str
+
+class SpeakerContribution(BaseModel):
+    name: str
+    value: int
+
+class DashboardData(BaseModel):
+    speaker_contributions: list[SpeakerContribution]
+    
+class AsanaExportRequest(BaseModel):
+    task_name: str
+    notes: str | None = None
+
+class AsanaExportResponse(BaseModel):
+    message: str
+    task_url: str
+
 
 # --- APIエンドポイント ---
 @app.get("/", summary="APIのヘルスチェック")
@@ -128,36 +153,11 @@ async def analyze_audio(file: UploadFile = File(...), model_name: str = Form("gp
         if os.path.exists(temp_file_path): os.remove(temp_file_path)
         if os.path.exists(wav_file_path): os.remove(wav_file_path)
 
-# --- Pydanticモデル (新規API用) ---
-class AskRequest(BaseModel):
-    """ナレッジベースへの質問リクエストのモデル"""
-    question: str
-
-class AskResponse(BaseModel):
-    """ナレッジベースからの回答レスポンスのモデル"""
-    answer: str
-
-# --- 新規APIエンドポイント ---
 @app.post("/api/ask-knowledge-base", response_model=AskResponse, tags=["Knowledge Base"])
 async def ask_knowledge_base(request: AskRequest):
-    """
-    ナレッジベースに対して質問を投げ、LLMによって生成された回答を返す。
-    """
     try:
-        # === Retrieve (検索) ===
-        # ナレッジベースから質問に関連する情報を検索
         context_docs = kb_manager.search_knowledge_base(request.question)
-        
-        print("--- 取得したコンテキスト情報 ---")
-        print(context_docs)
-        print("-----------------------------")
-
-
-        # 検索結果を一つのテキストに結合
         context_text = "\n\n---\n\n".join(context_docs)
-
-        # === Augment (補強) & Generate (生成) ===
-        # プロンプトテンプレートを定義
         prompt_template = ChatPromptTemplate.from_template(
             """あなたはTrustalkプロジェクトの優秀なAIアシスタントです。
 過去のミーティング議事録から検索された以下の「コンテキスト情報」のみに基づいて、ユーザーの「質問」に日本語で回答してください。
@@ -170,18 +170,77 @@ async def ask_knowledge_base(request: AskRequest):
 {question}
 """
         )
-        
-        # プロンプトを組み立て
         prompt = prompt_template.format(context=context_text, question=request.question)
-        
-        # LLMにプロンプトを渡して回答を生成
         response_message = llm.invoke(prompt)
         answer = response_message.content
-        
         return AskResponse(answer=answer)
     except Exception as e:
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"AIアシスタント処理中にエラーが発生しました: {str(e)}")
+
+@app.get("/api/dashboard/{analysis_id}", response_model=DashboardData, tags=["Dashboard"])
+async def get_dashboard_data(analysis_id: str):
+    history_file_path = os.path.join(HISTORY_DIR, f"{analysis_id}.json")
+    if not os.path.exists(history_file_path):
+        raise HTTPException(status_code=404, detail="分析履歴が見つかりません。")
+    try:
+        with open(history_file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        speakers_text = data.get("speakers", "")
+        matches = re.findall(r"\*\*(.*?)\*\*:\s*(.*?)(?=\n\n\*\*|$)", speakers_text, re.DOTALL)
+        contribution_data = {}
+        for speaker, speech in matches:
+            speech_length = len(speech.strip())
+            contribution_data[speaker] = contribution_data.get(speaker, 0) + speech_length
+        speaker_contributions = [{"name": name, "value": value} for name, value in contribution_data.items()]
+        return DashboardData(speaker_contributions=speaker_contributions)
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"ダッシュボードデータの生成中にエラーが発生しました: {str(e)}")
+
+@app.post("/api/export/asana", response_model=AsanaExportResponse, tags=["External Tools"])
+async def export_todo_to_asana(request: AsanaExportRequest):
+    ASANA_ACCESS_TOKEN = os.getenv("ASANA_ACCESS_TOKEN")
+    if not ASANA_ACCESS_TOKEN:
+        raise HTTPException(status_code=500, detail="Asanaのアクセストークンがサーバーに設定されていません。")
+
+    ASANA_WORKSPACE_GID = "1211111431628203"
+    ASANA_PROJECT_GID = "1211111199090161"
+
+    if "YOUR_" in ASANA_WORKSPACE_GID or "YOUR_" in ASANA_PROJECT_GID:
+         raise HTTPException(status_code=500, detail="AsanaのワークスペースIDまたはプロジェクトIDが設定されていません。")
+    try:
+        configuration = asana.Configuration()
+        configuration.access_token = ASANA_ACCESS_TOKEN
+        api_client = asana.ApiClient(configuration)
+        
+        tasks_api_instance = asana.TasksApi(api_client)
+        
+        task_data_body = {
+            "data": {
+                "name": request.task_name,
+                "notes": request.notes or "Trustalkから作成されました。",
+                "workspace": ASANA_WORKSPACE_GID,
+                "projects": [ASANA_PROJECT_GID]
+            }
+        }
+        
+        result = tasks_api_instance.create_task(body=task_data_body, opts={})
+        
+        task_gid = result['gid']
+        task_url = f"https://app.asana.com/0/{ASANA_PROJECT_GID}/{task_gid}"
+        
+        return AsanaExportResponse(
+            message="Asanaタスクを正常に作成しました。",
+            task_url=task_url
+        )
+
+    except ApiException as e:
+        print(f"Asana API Error: {e.body}")
+        raise HTTPException(status_code=500, detail=f"Asana APIエラーが発生しました。")
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Asanaへのエクスポート中に予期せぬエラーが発生しました: {str(e)}")
 
 
 @app.post("/benchmark-summary", summary="単一の音声ファイルで、複数のモデルの性能を比較する")
@@ -269,9 +328,6 @@ async def get_history_detail(file_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-class DeleteHistoryRequest(BaseModel):
-    ids: List[str]
-
 @app.post("/history/delete", summary="指定された分析履歴を削除する")
 async def delete_history(request: DeleteHistoryRequest):
     deleted_count = 0; errors = []
@@ -339,51 +395,3 @@ async def delete_rag_history(request: DeleteHistoryRequest):
         else: errors.append(f"ファイルが見つかりません: {file_id}")
     if errors: raise HTTPException(status_code=500, detail={"message": "一部削除失敗。", "errors": errors})
     return {"message": f"{deleted_count}件のRAG履歴を削除しました。", "deleted_count": deleted_count}
-
-# ...（既存のコードの下に追記）...
-
-# --- Pydanticモデル (ダッシュボードAPI用) ---
-class SpeakerContribution(BaseModel):
-    name: str
-    value: int # 発言文字数
-
-class DashboardData(BaseModel):
-    speaker_contributions: list[SpeakerContribution]
-
-# --- ダッシュボード用APIエンドポイント ---
-@app.get("/api/dashboard/{analysis_id}", response_model=DashboardData, tags=["Dashboard"])
-async def get_dashboard_data(analysis_id: str):
-    """
-    特定の分析結果IDに基づいて、ダッシュボード用のデータを生成して返す。
-    """
-    history_file_path = os.path.join(HISTORY_DIR, f"{analysis_id}.json")
-    if not os.path.exists(history_file_path):
-        raise HTTPException(status_code=404, detail="分析履歴が見つかりません。")
-
-    try:
-        with open(history_file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        # --- 話者ごとの発言量を計算 ---
-        speakers_text = data.get("speakers", "")
-
-        # 正規表現を使って「**話者名**: 発言内容」のパターンを全て見つけ出す
-        # re.findallは、[('話者A', 'こんにちは'), ('話者B', 'こんばんは')] のようなリストを返します
-        matches = re.findall(r"\*\*(.*?)\*\*:\s*(.*?)(?=\n\n\*\*|$)", speakers_text, re.DOTALL)
-
-        contribution_data = {}
-        for speaker, speech in matches:
-            # 発言内容の文字数をカウントして、話者ごとに加算していく
-            speech_length = len(speech.strip())
-            contribution_data[speaker] = contribution_data.get(speaker, 0) + speech_length
-
-        # Rechartsで使いやすい形式に変換
-        speaker_contributions = [
-            {"name": name, "value": value} for name, value in contribution_data.items()
-        ]
-
-        return DashboardData(speaker_contributions=speaker_contributions)
-
-    except Exception as e:
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"ダッシュボードデータの生成中にエラーが発生しました: {str(e)}")
