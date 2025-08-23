@@ -72,7 +72,6 @@ export default function HomePage() {
         (document.getElementById('file-upload') as HTMLInputElement).value = '';
       }
       setTimeout(() => {
-        // ページ移動の前に履歴を再取得して最新の状態を反映
         fetchHistory().then(() => {
             router.push(`/history/${data.id}`);
         });
@@ -130,7 +129,7 @@ export default function HomePage() {
         <nav className="mb-8 flex justify-center border-b border-gray-300">
           <Link href="/" className="px-4 py-2 text-lg font-semibold text-blue-600 border-b-2 border-blue-600">個別分析</Link>
           <Link href="/benchmark-summary" className="px-4 py-2 text-lg font-semibold text-gray-500 hover:text-blue-600">モデル性能比較</Link>
-          <Link href="/benchmark-rag" className="px-4 py-2 text-lg font-semibold text-gray-500 hover:text-blue-600">RAG評価</Link>
+          {/* <Link href="/benchmark-rag" className="px-4 py-2 text-lg font-semibold text-gray-500 hover:text-blue-600">RAG評価</Link> */} {/* 削除 */}
           <Link href="/knowledge" className="px-4 py-2 text-lg font-semibold text-gray-500 hover:text-blue-600">ナレッジ検索</Link>
         </nav>
         <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 mb-12">
