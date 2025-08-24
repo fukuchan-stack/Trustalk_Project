@@ -1,16 +1,43 @@
 import time
 import json
-import pandas as pd
-import numpy as np
-import chardet
-from io import BytesIO
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.documents import Document
+import re  # ★ 正規表現ライブラリをインポート
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from langchain_core.output_parsers import JsonOutputParser
 from models import get_llm
+
+# ★★★ ここから追加 ★★★
+def _parse_json_from_response(response_content: str):
+    """
+    LLMからの応答文字列（マークダウンブロックを含む可能性がある）からJSONオブジェクトを抽出する。
+    """
+    # 応答が空、またはJSONの開始文字を含まない場合はエラーとする
+    if not response_content or '{' not in response_content:
+        raise json.JSONDecodeError("No JSON object found in response", response_content, 0)
+
+    # マークダウンブロック ` ```json ... ``` ` があれば、その中身だけを抽出
+    match = re.search(r'```(json)?\s*\n(.*?)\n\s*```', response_content, re.DOTALL)
+    if match:
+        content_to_parse = match.group(2)
+    else:
+        # マークダウンブロックがない場合は、最初の '{' から最後の '}' までを抽出
+        start_index = response_content.find('{')
+        end_index = response_content.rfind('}')
+        if start_index != -1 and end_index != -1:
+            content_to_parse = response_content[start_index:end_index + 1]
+        else:
+            content_to_parse = response_content
+
+    try:
+        return json.loads(content_to_parse)
+    except json.JSONDecodeError as e:
+        # パースに失敗した場合は、元のエラーにコンテキストを追加して再度送出
+        raise json.JSONDecodeError(
+            f"Failed to decode JSON: {e.msg}",
+            content_to_parse,
+            e.pos
+        )
+# ★★★ ここまで追加 ★★★
+
 
 def _extract_token_usage(response):
     """LangChainのレスポンスオブジェクトからトークン使用量を抽出する（全プロバイダー対応版）"""
@@ -125,7 +152,8 @@ def run_self_improvement_pipeline(model_name: str, transcript_text: str):
         
         response1 = _generate_draft(llm, model_name, transcript_text)
         usage = _extract_token_usage(response1); total_token_usage["input_tokens"] += usage["input_tokens"]; total_token_usage["output_tokens"] += usage["output_tokens"]
-        draft_result = json.loads(response1.content)
+        # ★ 変更点: json.loads を _parse_json_from_response に変更
+        draft_result = _parse_json_from_response(response1.content)
 
         response2 = _review_draft(llm, model_name, transcript_text, draft_result)
         usage = _extract_token_usage(response2); total_token_usage["input_tokens"] += usage["input_tokens"]; total_token_usage["output_tokens"] += usage["output_tokens"]
@@ -133,14 +161,16 @@ def run_self_improvement_pipeline(model_name: str, transcript_text: str):
         
         response3 = _revise_draft(llm, model_name, transcript_text, draft_result, review_feedback)
         usage = _extract_token_usage(response3); total_token_usage["input_tokens"] += usage["input_tokens"]; total_token_usage["output_tokens"] += usage["output_tokens"]
-        final_result = json.loads(response3.content)
+        # ★ 変更点: json.loads を _parse_json_from_response に変更
+        final_result = _parse_json_from_response(response3.content)
 
         summary = "\n".join(f"- {item}" for item in final_result.get("summary", []))
         todos = final_result.get("todos", [])
         
         response4 = _evaluate_reliability(llm, model_name, transcript_text, summary)
         usage = _extract_token_usage(response4); total_token_usage["input_tokens"] += usage["input_tokens"]; total_token_usage["output_tokens"] += usage["output_tokens"]
-        evaluation = json.loads(response4.content)
+        # ★ 変更点: json.loads を _parse_json_from_response に変更
+        evaluation = _parse_json_from_response(response4.content)
         
         scores = [evaluation.get(s, 0) for s in ["faithfulness_score", "comprehensiveness_score", "conciseness_score"]]
         average_score = sum(scores) / len(scores) if scores else 0

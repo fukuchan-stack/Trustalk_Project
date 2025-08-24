@@ -1,4 +1,4 @@
-# backend/models.py (JSONモードの強制を削除)
+# backend/models.py
 
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -19,13 +19,13 @@ def get_llm(model_name: str) -> BaseChatModel:
         provider = "anthropic"
 
     if provider == "openai":
-        # ★ 変更点: デフォルトでのJSONモード強制を削除
         return ChatOpenAI(
             model=model_name,
             temperature=0,
         )
     elif provider == "google":
-        return ChatGoogleGenerativeAI(model=model_name, temperature=0, convert_system_message_to_human=True)
+        # ★ 変更点: convert_system_message_to_human=True を削除
+        return ChatGoogleGenerativeAI(model=model_name, temperature=0)
     elif provider == "anthropic":
         return ChatAnthropic(model=model_name, temperature=0)
     else:

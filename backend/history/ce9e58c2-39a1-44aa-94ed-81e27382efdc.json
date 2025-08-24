@@ -1,0 +1,17 @@
+{
+    "id": "ce9e58c2-39a1-44aa-94ed-81e27382efdc",
+    "createdAt": "2025-08-24T13:08:20.020427+00:00",
+    "originalFilename": "sanple.m4a",
+    "model_name": "gpt-4o-mini",
+    "transcript": "これはトラストークのテストですいいでしょう",
+    "summary": "- トラストークのテストが行われた。",
+    "todos": [
+        "テスト結果を分析し、次回の改善点をまとめる。"
+    ],
+    "speakers": "**UNKNOWN**: これは ト ラ スト ー ク の [*] テ スト です いい でしょう",
+    "cost": 0.06118275,
+    "reliability": {
+        "score": 0.9,
+        "justification": "要約は元の文字起こしの内容を正確に反映しているが、詳細なニュアンスが欠けているため、完全な忠実性には達していない。"
+    }
+}
