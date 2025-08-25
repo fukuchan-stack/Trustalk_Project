@@ -18,6 +18,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # RenderがFastAPIアプリケーションを動かすポートを公開します
 EXPOSE 10000
 
-# ★★★ 修正点: gunicornの起動コマンドのポートを10000に直接指定 ★★★
+# ★★★ 修正点: sh -c を使って環境変数を展開するように変更 ★★★
 WORKDIR /app/backend
-CMD gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:10000
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]
