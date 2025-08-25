@@ -15,7 +15,7 @@ COPY . /app
 # --upgrade pip: pipを最新版にアップグレード
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu && \
-    pip install -r requirements.txt
+    pip install -r backend/requirements.txt
 
 # RenderがFastAPIアプリケーションを動かすポートを公開します
 EXPOSE 10000
