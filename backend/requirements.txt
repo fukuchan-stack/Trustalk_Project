@@ -22,3 +22,4 @@ langchain-community
 chromadb
 pysqlite3-binary
 asana
+gunicorn
