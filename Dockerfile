@@ -18,6 +18,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # RenderがFastAPIアプリケーションを動かすポートを公開します
 EXPOSE 10000
 
-# ★★★ 修正点: gunicornを使って起動するように変更 ★★★
+# ★★★ 修正点: gunicornの起動コマンドをより堅牢な形式に変更 ★★★
 WORKDIR /app/backend
-CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:10000"]
+CMD gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:10000
