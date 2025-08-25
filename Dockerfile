@@ -18,6 +18,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # RenderがFastAPIアプリケーションを動かすポートを公開します
 EXPOSE 10000
 
-# ★★★ 修正点: CMDの起動コマンドをpython -m uvicornに変更 ★★★
+# ★★★ 修正点: CMDのポート指定を$PORTに変更 ★★★
 WORKDIR /app/backend
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "$PORT"]
