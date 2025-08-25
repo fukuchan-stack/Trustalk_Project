@@ -20,4 +20,4 @@ EXPOSE 10000
 
 # ★★★ 修正点: sh -c を使って環境変数を展開するように変更 ★★★
 WORKDIR /app/backend
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]
+CMD ["sh", "-c", "python -m uvicorn main:app --host 0.0.0.0 --port $PORT"]
