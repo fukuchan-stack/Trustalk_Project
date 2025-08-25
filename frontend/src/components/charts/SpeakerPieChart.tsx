@@ -31,7 +31,7 @@ export function SpeakerPieChart({ data }: SpeakerPieChartProps) {
           cx="50%" // 中央（X軸）
           cy="50%" // 中央（Y軸）
           labelLine={false}
-          // ★★★ 修正点: percentがundefinedの場合に備えて0に置き換える処理を追加 ★★★
+          // ラベルの表示形式を定義（名前とパーセンテージ）
           label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
           outerRadius={80} // 円の大きさ
           fill="#8884d8"
