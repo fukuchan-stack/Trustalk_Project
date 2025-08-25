@@ -58,13 +58,13 @@ def load_pyannote_pipeline():
 # --- FastAPIアプリケーションのセットアップ ---
 app = FastAPI(title="Trustalk API", version="3.0.0")
 
-# ★★★ 修正箇所: allow_origins にVercelとローカルのURLを明示的に追加 ★★★
+# ★★★ 修正箇所: 環境変数から許可オリジンを読み込む ★★★
+allowed_origins_str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+allowed_origins = allowed_origins_str.split(',')
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://trustalk-frontend.vercel.app",  # Vercelで公開したフロントエンドのURL
-        "http://localhost:3000"                # ローカル開発用のURL
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
