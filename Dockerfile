@@ -21,4 +21,4 @@ RUN pip install --no-cache-dir --upgrade pip && \
 EXPOSE 10000
 
 # コンテナ起動時に実行するコマンドを定義します
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000", "--reload"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
