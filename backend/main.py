@@ -6,7 +6,6 @@ import traceback
 import subprocess
 import re
 import threading
-import pandas as pd
 from datetime import datetime, timezone
 from typing import List
 from pydantic import BaseModel
@@ -58,7 +57,18 @@ def load_pyannote_pipeline():
 
 # --- FastAPIアプリケーションのセットアップ ---
 app = FastAPI(title="Trustalk API", version="3.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+# ★★★ 修正箇所: allow_origins にVercelとローカルのURLを明示的に追加 ★★★
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://trustalk-frontend.vercel.app",  # Vercelで公開したフロントエンドのURL
+        "http://localhost:3000"                # ローカル開発用のURL
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 HISTORY_DIR = "history"
 os.makedirs(HISTORY_DIR, exist_ok=True)
 
@@ -228,33 +238,6 @@ async def export_todo_to_asana(request: AsanaExportRequest):
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Asanaへのエクスポート中に予期せぬエラーが発生しました: {str(e)}")
 
-
-@app.post("/benchmark-summary", summary="単一の音声ファイルで、複数のモデルの性能を比較する")
-async def benchmark_summary_audio(file: UploadFile = File(...), models_to_benchmark: str = Form(...)):
-    load_whisper_model()
-    try: models_to_run = json.loads(models_to_benchmark)
-    except Exception: raise HTTPException(status_code=400, detail="無効なモデルリストが送信されました。")
-    original_filename, temp_file_path = file.filename, f"/tmp/{uuid.uuid4()}_{file.filename}"
-    wav_file_path = f"{os.path.splitext(temp_file_path)[0]}.wav"
-    try:
-        with open(temp_file_path, "wb") as buffer: contents = await file.read(); buffer.write(contents)
-        command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]; subprocess.run(command, check=True, capture_output=True, text=True)
-        audio = whisper.load_audio(wav_file_path)
-        audio_duration_seconds = len(audio) / whisper.audio.SAMPLE_RATE
-        transcription_result = whisper.transcribe(whisper_model, audio, language="ja", detect_disfluencies=True)
-        transcript_text = transcription_result.get("text", "")
-        cleaned_text = re.sub(r'[\(\[].*?[\)\]]', '', transcript_text or "").strip()
-        if len(cleaned_text) < 10: raise HTTPException(status_code=400, detail="内容が短すぎるためベンチマークを実行できません。")
-        benchmark_results = run_benchmark_pipeline(transcript_text, models_to_run)
-        for result in benchmark_results:
-            result["cost"] = calculate_cost_in_jpy(model_name=result["model_name"], total_input_tokens=result["token_usage"].get("input_tokens", 0), total_output_tokens=result["token_usage"].get("output_tokens", 0), audio_duration_seconds=audio_duration_seconds)
-        return JSONResponse(content=benchmark_results)
-    except Exception as e:
-        print(traceback.format_exc()); raise HTTPException(status_code=500, detail=f"ベンチマーク中に予期せぬエラー: {str(e)}")
-    finally:
-        if os.path.exists(temp_file_path): os.remove(temp_file_path)
-        if os.path.exists(wav_file_path): os.remove(wav_file_path)
-
 @app.get("/history", summary="分析履歴の一覧を取得")
 async def get_history_list():
     try:
@@ -302,3 +285,29 @@ async def delete_history(request: DeleteHistoryRequest):
     if errors:
         raise HTTPException(status_code=500, detail={"message": "一部のファイルの削除に失敗しました。", "errors": errors})
     return {"message": f"{deleted_count}件の履歴を削除しました。", "deleted_count": deleted_count}
+
+@app.post("/benchmark-summary", summary="単一の音声ファイルで、複数のモデルの性能を比較する")
+async def benchmark_summary_audio(file: UploadFile = File(...), models_to_benchmark: str = Form(...)):
+    load_whisper_model()
+    try: models_to_run = json.loads(models_to_benchmark)
+    except Exception: raise HTTPException(status_code=400, detail="無効なモデルリストが送信されました。")
+    original_filename, temp_file_path = file.filename, f"/tmp/{uuid.uuid4()}_{file.filename}"
+    wav_file_path = f"{os.path.splitext(temp_file_path)[0]}.wav"
+    try:
+        with open(temp_file_path, "wb") as buffer: contents = await file.read(); buffer.write(contents)
+        command = ["ffmpeg", "-i", temp_file_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_file_path]; subprocess.run(command, check=True, capture_output=True, text=True)
+        audio = whisper.load_audio(wav_file_path)
+        audio_duration_seconds = len(audio) / whisper.audio.SAMPLE_RATE
+        transcription_result = whisper.transcribe(whisper_model, audio, language="ja", detect_disfluencies=True)
+        transcript_text = transcription_result.get("text", "")
+        cleaned_text = re.sub(r'[\(\[].*?[\)\]]', '', transcript_text or "").strip()
+        if len(cleaned_text) < 10: raise HTTPException(status_code=400, detail="内容が短すぎるためベンチマークを実行できません。")
+        benchmark_results = run_benchmark_pipeline(transcript_text, models_to_run)
+        for result in benchmark_results:
+            result["cost"] = calculate_cost_in_jpy(model_name=result["model_name"], total_input_tokens=result["token_usage"].get("input_tokens", 0), total_output_tokens=result["token_usage"].get("output_tokens", 0), audio_duration_seconds=audio_duration_seconds)
+        return JSONResponse(content=benchmark_results)
+    except Exception as e:
+        print(traceback.format_exc()); raise HTTPException(status_code=500, detail=f"ベンチマーク中に予期せぬエラー: {str(e)}")
+    finally:
+        if os.path.exists(temp_file_path): os.remove(temp_file_path)
+        if os.path.exists(wav_file_path): os.remove(wav_file_path)
